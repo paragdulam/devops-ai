@@ -1,0 +1,47 @@
+[package]
+name = "remote-dev-machine"
+version = "0.1.0"
+description = "Remote Development Machine desktop app"
+authors = ["Parag Dulam"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "remote_dev_machine_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+aws-config = "1.12.0"
+aws-sdk-ec2 = "1.256.0"
+aws-sdk-sts = "1.114.0"
+keyring = "4.2.0"
+uuid = { version = "1.26.1", features = ["v4"] }
+rand = "0.10.2"
+chrono = { version = "0.4.45", features = ["serde"] }
+base64 = "0.23.1"
+tokio = { version = "1.53.1", features = ["net", "time", "process", "io-util"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "form", "query"] }
+russh = "0.63.3"
+sha-crypt = "0.6.0"
+
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

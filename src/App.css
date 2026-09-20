@@ -1,0 +1,250 @@
+:root {
+  color-scheme: light dark;
+}
+
+.home-screen,
+.rental-screen {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  text-align: left;
+}
+
+.project-picker,
+.machine-profile {
+  margin-bottom: 1.5rem;
+}
+
+.project-summary__row span {
+  font-weight: 600;
+}
+
+.validation-error {
+  color: #d33;
+}
+
+.machine-profile__card {
+  border: 1px solid var(--border-color, #8883);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  display: inline-block;
+}
+
+.start-renting-button,
+.stop-renting-button {
+  font-size: 1rem;
+  padding: 0.6rem 1.4rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.start-renting-button:disabled,
+.stop-renting-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rental-screen__header {
+  margin-bottom: 1rem;
+}
+
+.rental-badge {
+  color: #2a9d3f;
+  font-weight: 600;
+}
+
+.rental-checklist {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+}
+
+.rental-checklist__item {
+  padding: 0.25rem 0;
+}
+
+.rental-checklist__item.is-pending {
+  opacity: 0.5;
+}
+
+.rental-checklist__item.is-error {
+  color: #d33;
+}
+
+.rental-checklist__marker {
+  display: inline-block;
+  width: 1.5rem;
+}
+
+.rental-screen__panels {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.remote-panel {
+  border: 1px dashed var(--border-color, #8883);
+  border-radius: 8px;
+  padding: 0.75rem;
+  min-height: 120px;
+}
+
+.remote-panel--desktop {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.remote-panel--terminal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.remote-panel--expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: #111;
+  border-radius: 0;
+  padding: 0.75rem;
+}
+
+.remote-panel__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.remote-panel__screen {
+  position: relative;
+  flex: 1;
+  min-height: 200px;
+  border-radius: 8px;
+  background: #000;
+  overflow: hidden;
+}
+
+.remote-panel__screen-canvas {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remote-panel__screen-canvas canvas {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.remote-panel__screen-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1rem;
+  color: #aaa;
+  background: repeating-linear-gradient(
+    45deg,
+    #1c1c1c,
+    #1c1c1c 10px,
+    #202020 10px,
+    #202020 20px
+  );
+  pointer-events: none;
+}
+
+.rental-screen--desktop-expanded {
+  padding: 0;
+  max-width: none;
+}
+
+.rental-screen--desktop-expanded .rental-screen__panels {
+  margin: 0;
+  height: 100vh;
+}
+
+.rental-screen__footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.confirm-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirm-dialog {
+  background: var(--dialog-bg, #fff);
+  color: #111;
+  border-radius: 8px;
+  padding: 1.5rem;
+  max-width: 320px;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.account-picker {
+  margin-bottom: 1.5rem;
+}
+
+.account-picker__row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.accounts-screen {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  text-align: left;
+}
+
+.accounts-screen__list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.5rem;
+}
+
+.accounts-screen__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color, #8883);
+}
+
+.accounts-screen__item-meta {
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.accounts-screen__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.accounts-screen__form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
