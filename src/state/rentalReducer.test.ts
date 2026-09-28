@@ -11,6 +11,7 @@ const projectInfo: ProjectInfo = {
   isEmpty: false,
   fileCount: 10,
   totalSizeBytes: 2048,
+  kind: "general",
 };
 
 const rental: Rental = {
@@ -59,5 +60,37 @@ describe("rentalReducer", () => {
     });
     const state = rentalReducer(withRental, { type: "RESET" });
     expect(state.rental).toBeNull();
+  });
+});
+
+describe("IDE recommendation", () => {
+  it("defaults to VS Code before any project is detected", () => {
+    expect(createInitialState("standard").selectedIdes).toEqual(["vscode"]);
+  });
+
+  it.each([
+    ["android", ["androidStudio"]],
+    ["flutter", ["androidStudio"]],
+    ["reactNative", ["androidStudio"]],
+    ["general", ["vscode"]],
+  ] as const)("recommends %s -> %j", (kind, ides) => {
+    const next = rentalReducer(createInitialState("standard"), {
+      type: "PROJECT_KIND_DETECTED",
+      kind,
+    });
+    expect(next.projectKind).toBe(kind);
+    expect(next.selectedIdes).toEqual(ides);
+  });
+
+  it("keeps a manual override until a new project is detected", () => {
+    let state = rentalReducer(createInitialState("standard"), {
+      type: "PROJECT_KIND_DETECTED",
+      kind: "android",
+    });
+    state = rentalReducer(state, { type: "IDES_CHANGED", ides: ["vscode", "androidStudio"] });
+    expect(state.selectedIdes).toEqual(["vscode", "androidStudio"]);
+
+    state = rentalReducer(state, { type: "PROJECT_KIND_DETECTED", kind: null });
+    expect(state.selectedIdes).toEqual(["vscode", "androidStudio"]);
   });
 });

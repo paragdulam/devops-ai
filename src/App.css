@@ -11,6 +11,7 @@
 }
 
 .project-picker,
+.ide-picker,
 .machine-profile {
   margin-bottom: 1.5rem;
 }
@@ -255,4 +256,14 @@
   flex-direction: column;
   gap: 0.25rem;
   font-size: 0.9rem;
+}
+
+.ide-picker__detected {
+  margin: 0 0 0.5rem;
+  opacity: 0.8;
+}
+
+.ide-picker__options {
+  display: flex;
+  gap: 1.25rem;
 }

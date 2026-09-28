@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ProjectPicker } from "../components/ProjectPicker";
 import { MachineProfileCard } from "../components/MachineProfileCard";
+import { IdePicker } from "../components/IdePicker";
 import { AccountPicker } from "../components/AccountPicker";
 import { VmCredentialsForm } from "../components/VmCredentialsForm";
 import { useRentalState } from "../state/RentalContext";
@@ -41,6 +42,7 @@ export function HomeScreen({ onOpenAccounts }: { onOpenAccounts: () => void }) {
               cloneUrl: state.selectedGithubRepo.repo.cloneUrl,
               defaultBranch: state.selectedGithubRepo.repo.defaultBranch,
             },
+            ides: state.selectedIdes,
           }
         : {
             accountId: state.selectedAccountId,
@@ -48,6 +50,7 @@ export function HomeScreen({ onOpenAccounts }: { onOpenAccounts: () => void }) {
             projectName: state.projectInfo!.name,
             vmUsername: state.vmUsername,
             vmPassword: state.vmPassword,
+            ides: state.selectedIdes,
           };
 
     setStarting(true);
@@ -68,6 +71,7 @@ export function HomeScreen({ onOpenAccounts }: { onOpenAccounts: () => void }) {
     <main className="home-screen">
       <h1>Remote Dev</h1>
       <ProjectPicker />
+      <IdePicker />
       <MachineProfileCard />
       <AccountPicker onManageAccounts={onOpenAccounts} />
       <VmCredentialsForm />

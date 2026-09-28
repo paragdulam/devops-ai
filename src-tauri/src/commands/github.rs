@@ -1,4 +1,5 @@
 use crate::github::{self, GithubAccount, GithubLinkState, GithubRepo, LinkStart, LinkStatus};
+use crate::project_kind::{self, ProjectKind};
 use tauri::{AppHandle, State};
 
 #[tauri::command]
@@ -31,4 +32,15 @@ pub async fn delete_github_account(app: AppHandle, id: String) -> Result<(), Str
 pub async fn list_github_repos(account_id: String) -> Result<Vec<GithubRepo>, String> {
     let token = github::resolve_github_token(&account_id)?;
     github::list_repos(&token).await
+}
+
+#[tauri::command]
+pub async fn detect_github_project_kind(
+    account_id: String,
+    full_name: String,
+    branch: String,
+) -> Result<ProjectKind, String> {
+    let token = github::resolve_github_token(&account_id)?;
+    let files = github::fetch_marker_files(&token, &full_name, &branch).await;
+    Ok(project_kind::classify(&files))
 }

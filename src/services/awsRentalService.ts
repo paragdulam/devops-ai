@@ -17,6 +17,7 @@ export class AwsRentalService implements RentalService {
       vmUsername: req.vmUsername,
       vmPassword: req.vmPassword,
       githubRepo: req.githubRepo,
+      ides: req.ides,
     });
   }
 

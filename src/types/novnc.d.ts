@@ -16,5 +16,7 @@ declare module "@novnc/novnc" {
     constructor(target: HTMLElement, urlOrChannel: string, options?: RFBOptions);
     disconnect(): void;
     sendCredentials(credentials: RFBCredentials): void;
+    sendKey(keysym: number, code: string | null, down?: boolean): void;
+    clipboardPasteFrom(text: string): void;
   }
 }
