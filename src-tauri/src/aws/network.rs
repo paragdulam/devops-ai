@@ -17,27 +17,46 @@ pub async fn lookup_caller_ip() -> Result<String, String> {
     Ok(body.trim().to_string())
 }
 
+/// Prefers the account's default VPC, but falls back to any available VPC in
+/// the region — some accounts (e.g. ones that never had a default VPC, or
+/// had it deleted) have none, and this launch path shouldn't hard-fail just
+/// because that one's missing.
 pub async fn resolve_default_vpc_and_subnet(ec2: &Client) -> Result<(String, String), String> {
-    let vpcs = ec2
+    let default_vpcs = ec2
         .describe_vpcs()
         .filters(Filter::builder().name("isDefault").values("true").build())
         .send()
         .await
         .map_err(|e| format!("Could not describe VPCs: {e:?}"))?;
 
-    let vpc_id = vpcs
-        .vpcs()
-        .first()
-        .and_then(|v| v.vpc_id())
-        .ok_or_else(|| {
-            "No default VPC found in this region/account — this PoC needs one to launch into"
+    let vpc_id = match default_vpcs.vpcs().first().and_then(|v| v.vpc_id()) {
+        Some(id) => id.to_string(),
+        None => {
+            let all_vpcs = ec2
+                .describe_vpcs()
+                .send()
+                .await
+                .map_err(|e| format!("Could not describe VPCs: {e:?}"))?;
+            all_vpcs
+                .vpcs()
+                .first()
+                .and_then(|v| v.vpc_id())
+                .ok_or_else(|| {
+                    "No VPCs found in this region/account — at least one VPC is needed to launch into"
+                        .to_string()
+                })?
                 .to_string()
-        })?
-        .to_string();
+        }
+    };
 
     let subnets = ec2
         .describe_subnets()
-        .filters(Filter::builder().name("vpc-id").values(vpc_id.clone()).build())
+        .filters(
+            Filter::builder()
+                .name("vpc-id")
+                .values(vpc_id.clone())
+                .build(),
+        )
         .send()
         .await
         .map_err(|e| format!("Could not describe subnets: {e:?}"))?;
@@ -46,7 +65,7 @@ pub async fn resolve_default_vpc_and_subnet(ec2: &Client) -> Result<(String, Str
         .subnets()
         .first()
         .and_then(|s| s.subnet_id())
-        .ok_or_else(|| format!("No subnets found in default VPC {vpc_id}"))?
+        .ok_or_else(|| format!("No subnets found in VPC {vpc_id}"))?
         .to_string();
 
     Ok((vpc_id, subnet_id))

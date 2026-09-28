@@ -56,10 +56,7 @@ fn link_state(app: &AppHandle) -> tauri::State<'_, GithubLinkState> {
 }
 
 fn accounts_file_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| e.to_string())?;
+    let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join(ACCOUNTS_FILE))
 }
@@ -207,9 +204,7 @@ async fn finish_link(app: &AppHandle, token: &str, client: &reqwest::Client) -> 
     };
 
     let id = uuid::Uuid::new_v4().to_string();
-    if let Err(e) =
-        keyring::Entry::new(KEYRING_SERVICE, &id).and_then(|e| e.set_password(token))
-    {
+    if let Err(e) = keyring::Entry::new(KEYRING_SERVICE, &id).and_then(|e| e.set_password(token)) {
         return LinkStatus::Failed {
             error: e.to_string(),
         };

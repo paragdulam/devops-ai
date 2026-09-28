@@ -20,7 +20,12 @@ fn state(app: &AppHandle) -> tauri::State<'_, SshTerminalState> {
 /// rental's stored keypair (the same one Ansible provisioned with). Returns
 /// a session id the frontend uses for subsequent writes/resizes/close and to
 /// filter the `ssh-terminal://{session_id}/data` event stream.
-pub async fn open(app: AppHandle, rental_id: String, host: String, user: String) -> Result<String, String> {
+pub async fn open(
+    app: AppHandle,
+    rental_id: String,
+    host: String,
+    user: String,
+) -> Result<String, String> {
     let private_key_pem = ssh::load_private_key(&rental_id)?;
     let handle = ssh::connect(&host, &user, &private_key_pem).await?;
 
@@ -61,7 +66,11 @@ pub async fn open(app: AppHandle, rental_id: String, host: String, user: String)
                 _ => {}
             }
         }
-        state(&app_for_task).0.lock().await.remove(&session_id_for_task);
+        state(&app_for_task)
+            .0
+            .lock()
+            .await
+            .remove(&session_id_for_task);
     });
 
     {

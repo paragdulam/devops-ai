@@ -12,6 +12,8 @@ dist
 dist-ssr
 *.local
 
+test/provision_vm_playbook.yml
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

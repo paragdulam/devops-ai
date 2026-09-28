@@ -48,3 +48,30 @@ pub async fn delete_key_pair(ec2: &Client, key_name: &str) -> Result<(), String>
         .map_err(|e| format!("Could not delete EC2 key pair {key_name}: {e:?}"))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Diagnostic for "SSH authentication was rejected": confirms the private
+    /// PEM this module hands back actually round-trips (via the same
+    /// `decode_secret_key` the SSH client uses) to the identical public key
+    /// that gets imported to AWS, entirely offline.
+    #[test]
+    fn generated_private_key_round_trips_to_the_same_public_key() {
+        let (public_key, private_pem) = generate_keypair().unwrap();
+        let decoded = russh::keys::decode_secret_key(&private_pem, None).unwrap();
+        let round_tripped_public = decoded.public_key().to_openssh().unwrap();
+
+        // Compare only the algorithm+key material fields (first two
+        // whitespace-separated tokens), since OpenSSH pubkey lines can carry
+        // a trailing comment that isn't part of the key itself.
+        let key_fields =
+            |line: &str| -> String { line.split_whitespace().take(2).collect::<Vec<_>>().join(" ") };
+        assert_eq!(
+            key_fields(&public_key),
+            key_fields(&round_tripped_public),
+            "public_key={public_key:?} round_tripped={round_tripped_public:?}"
+        );
+    }
+}

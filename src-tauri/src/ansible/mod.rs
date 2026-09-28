@@ -97,8 +97,15 @@ pub fn remove_artifacts(app: &AppHandle, rental_id: &str) {
 }
 
 fn build_inventory(host: &str, key_path: &std::path::Path) -> String {
+    // The key path is unquoted, so it must not contain a space — but
+    // `app_local_data_dir()` on macOS resolves under `~/Library/Application
+    // Support/...`, which always does. An unquoted value there breaks the
+    // ini inventory parser, which then silently falls back to "only
+    // implicit localhost available" — the play (`hosts: vm`) matches zero
+    // hosts, every task is skipped, and `ansible-playbook` still exits 0,
+    // making the whole provisioning step look like a no-op success.
     format!(
-        "[vm]\n{host} ansible_user=ubuntu ansible_ssh_private_key_file={key} ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'\n",
+        "[vm]\n{host} ansible_user=ubuntu ansible_ssh_private_key_file=\"{key}\" ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'\n",
         host = host,
         key = key_path.display(),
     )
@@ -139,6 +146,8 @@ fn build_playbook(
     - name: Clone the selected repository
       tags: [clone]
       become_user: "{vm_username}"
+      environment:
+        GIT_TERMINAL_PROMPT: "0"
       ansible.builtin.git:
         repo: "{url}"
         version: "{branch}"
@@ -339,8 +348,11 @@ pub async fn provision(params: ProvisionParams<'_>) -> Result<(), String> {
     let inventory_path = dir.join("inventory.ini");
     let playbook_path = dir.join("playbook.yml");
 
-    std::fs::write(&inventory_path, build_inventory(params.host, params.private_key_path))
-        .map_err(|e| e.to_string())?;
+    std::fs::write(
+        &inventory_path,
+        build_inventory(params.host, params.private_key_path),
+    )
+    .map_err(|e| e.to_string())?;
 
     let password_hash = hash_password(params.vm_password)?;
     let playbook = build_playbook(
@@ -351,7 +363,25 @@ pub async fn provision(params: ProvisionParams<'_>) -> Result<(), String> {
         params.profile_packages,
         params.clone,
     );
-    std::fs::write(&playbook_path, playbook).map_err(|e| e.to_string())?;
+    std::fs::write(&playbook_path, &playbook).map_err(|e| e.to_string())?;
+
+    let log_topic = format!("rental://{}/log", params.rental_id);
+    let step_topic = format!("rental://{}/step", params.rental_id);
+
+    for line in std::iter::once(format!(
+        "--- ansible playbook for rental {} ({}) ---",
+        params.rental_id,
+        playbook_path.display(),
+    ))
+    .chain(playbook.lines().map(str::to_string))
+    .chain(std::iter::once("--- end playbook ---".to_string()))
+    {
+        #[cfg(debug_assertions)]
+        eprintln!("{line}");
+
+        let _ = params.app.emit(&log_topic, &line);
+        crate::rentals::append_log_line(params.app, params.rental_id, line).await;
+    }
 
     let callback_dir = params
         .app
@@ -373,13 +403,16 @@ pub async fn provision(params: ProvisionParams<'_>) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("Could not start ansible-playbook: {e}"))?;
 
-    let stdout = child.stdout.take().ok_or("ansible-playbook had no stdout")?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("ansible-playbook had no stdout")?;
     let mut lines = BufReader::new(stdout).lines();
 
-    let log_topic = format!("rental://{}/log", params.rental_id);
-    let step_topic = format!("rental://{}/step", params.rental_id);
-
     while let Ok(Some(line)) = lines.next_line().await {
+        #[cfg(debug_assertions)]
+        eprintln!("{line}");
+
         let _ = params.app.emit(&log_topic, &line);
         crate::rentals::append_log_line(params.app, params.rental_id, line.clone()).await;
 
@@ -425,7 +458,11 @@ mod tests {
     /// single rental. Skips gracefully if `ansible-playbook` isn't on PATH,
     /// so this never becomes a hard CI dependency.
     fn syntax_check(playbook: &str) {
-        if StdCommand::new("ansible-playbook").arg("--version").output().is_err() {
+        if StdCommand::new("ansible-playbook")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
             eprintln!("skipping: ansible-playbook not on PATH");
             return;
         }
@@ -449,7 +486,8 @@ mod tests {
     }
 
     fn tempfile_path() -> (PathBuf, std::fs::File) {
-        let path = std::env::temp_dir().join(format!("rdm-playbook-test-{}.yml", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("rdm-playbook-test-{}.yml", uuid::Uuid::new_v4()));
         let file = std::fs::File::create(&path).unwrap();
         (path, file)
     }
@@ -457,7 +495,14 @@ mod tests {
     #[test]
     fn playbook_with_empty_profile_packages_is_valid_yaml() {
         let hash = hash_password("s3cret!").unwrap();
-        let playbook = build_playbook("dev", &hash, "ssh-ed25519 AAAA... key", "vncpass", &[], None);
+        let playbook = build_playbook(
+            "dev",
+            &hash,
+            "ssh-ed25519 AAAA... key",
+            "vncpass",
+            &[],
+            None,
+        );
         syntax_check(&playbook);
     }
 

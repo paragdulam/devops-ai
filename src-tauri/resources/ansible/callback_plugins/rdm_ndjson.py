@@ -38,8 +38,17 @@ class CallbackModule(CallbackBase):
         payload = {"event": event, "task": name, "tags": tags}
         if result is not None:
             payload["host"] = result._host.get_name() if result._host else None
+            res = result._result or {}
             if event == "failed":
-                payload["msg"] = result._result.get("msg", "")
+                payload["msg"] = res.get("msg", "")
+            elif event == "ok":
+                # Surface debug/command output for successful tasks too, not
+                # just failures — otherwise ad-hoc diagnostic tasks (debug +
+                # register) never show up in the streamed log at all.
+                if "msg" in res:
+                    payload["msg"] = res["msg"]
+                if "stdout_lines" in res:
+                    payload["stdout_lines"] = res["stdout_lines"]
 
         sys.stdout.write(json.dumps(payload) + "\n")
         sys.stdout.flush()

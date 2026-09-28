@@ -6,7 +6,7 @@ use aws_sdk_ec2::Client as Ec2Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 
 /// The GitHub repo picked when starting a rental, carried on the record so
@@ -137,7 +137,10 @@ pub async fn get_record(app: &AppHandle, id: &str) -> Option<RentalRecord> {
 }
 
 pub async fn get_provisioning_log(app: &AppHandle, id: &str) -> Vec<String> {
-    get_record(app, id).await.map(|r| r.provisioning_log).unwrap_or_default()
+    get_record(app, id)
+        .await
+        .map(|r| r.provisioning_log)
+        .unwrap_or_default()
 }
 
 /// Appends one line to the in-memory replay buffer the on-demand log viewer
@@ -268,13 +271,14 @@ pub async fn provision(
         return;
     }
 
-    let (account, secret) = match crate::commands::accounts::resolve_account_secret(&app, &account_id) {
-        Ok(v) => v,
-        Err(e) => {
-            set_failed(&app, &id, e).await;
-            return;
-        }
-    };
+    let (account, secret) =
+        match crate::commands::accounts::resolve_account_secret(&app, &account_id) {
+            Ok(v) => v,
+            Err(e) => {
+                set_failed(&app, &id, e).await;
+                return;
+            }
+        };
 
     let profile = match aws::instance::profile_for(&machine_profile) {
         Ok(p) => p,
@@ -290,7 +294,7 @@ pub async fn provision(
         aws::credentials::build_sdk_config(&account.region, &account.access_key_id, &secret).await;
     let ec2 = Ec2Client::new(&sdk_config);
 
-    let ami_id = match aws::ami::resolve_ubuntu_ami(&ec2).await {
+    let (ami_id, root_device_name) = match aws::ami::resolve_ubuntu_ami(&ec2).await {
         Ok(v) => v,
         Err(e) => {
             set_failed(&app, &id, e).await;
@@ -322,7 +326,10 @@ pub async fn provision(
                 return;
             }
         };
-    update_record(&app, &id, |r| r.security_group_id = Some(security_group_id.clone())).await;
+    update_record(&app, &id, |r| {
+        r.security_group_id = Some(security_group_id.clone())
+    })
+    .await;
 
     let (public_key, private_key_pem) = match aws::keypair::generate_keypair() {
         Ok(v) => v,
@@ -344,11 +351,23 @@ pub async fn provision(
     };
     update_record(&app, &id, |r| r.key_pair_name = Some(key_pair_name.clone())).await;
 
+    // Diagnostic for "SSH authentication was rejected": lets the public key
+    // this rental generated and imported be compared directly against
+    // whatever the instance's own boot log (`ci-info: Authorized keys...`)
+    // says actually landed in ~ubuntu/.ssh/authorized_keys. Not sensitive —
+    // it's the public half.
+    let key_log_line = format!("Generated and imported public key: {public_key}");
+    let _ = app.emit(&format!("rental://{id}/log"), &key_log_line);
+    append_log_line(&app, &id, key_log_line).await;
+
     let github_repo = get_record(&app, &id).await.and_then(|r| r.github_repo);
     let clone_spec = match github_repo {
         Some(repo) => match github::resolve_github_token(&repo.github_account_id) {
             Ok(token) => Some(ansible::CloneSpec {
-                url: format!("https://x-access-token:{token}@github.com/{}.git", repo.full_name),
+                url: format!(
+                    "https://x-access-token:{token}@github.com/{}.git",
+                    repo.full_name
+                ),
                 branch: repo.default_branch,
                 dir_name: repo.repo_name,
             }),
@@ -374,6 +393,8 @@ pub async fn provision(
     let instance_id = match aws::instance::launch_instance(
         &ec2,
         &ami_id,
+        &root_device_name,
+        profile.root_volume_gb,
         profile.instance_type,
         &subnet_id,
         &security_group_id,
@@ -384,7 +405,16 @@ pub async fn provision(
     {
         Ok(v) => v,
         Err(e) => {
-            cleanup_and_fail(&app, &ec2, &id, None, Some(&security_group_id), Some(&key_pair_name), e).await;
+            cleanup_and_fail(
+                &app,
+                &ec2,
+                &id,
+                None,
+                Some(&security_group_id),
+                Some(&key_pair_name),
+                e,
+            )
+            .await;
             return;
         }
     };
@@ -394,22 +424,23 @@ pub async fn provision(
     })
     .await;
 
-    let public_ip = match aws::instance::wait_for_running(&ec2, &instance_id, Duration::from_secs(180)).await {
-        Ok(ip) => ip,
-        Err(e) => {
-            cleanup_and_fail(
-                &app,
-                &ec2,
-                &id,
-                Some(&instance_id),
-                Some(&security_group_id),
-                Some(&key_pair_name),
-                e,
-            )
-            .await;
-            return;
-        }
-    };
+    let public_ip =
+        match aws::instance::wait_for_running(&ec2, &instance_id, Duration::from_secs(180)).await {
+            Ok(ip) => ip,
+            Err(e) => {
+                cleanup_and_fail(
+                    &app,
+                    &ec2,
+                    &id,
+                    Some(&instance_id),
+                    Some(&security_group_id),
+                    Some(&key_pair_name),
+                    e,
+                )
+                .await;
+                return;
+            }
+        };
     update_record(&app, &id, |r| r.public_ip = Some(public_ip.clone())).await;
     set_status(&app, &id, RentalStatus::Booting).await;
 
@@ -419,7 +450,8 @@ pub async fn provision(
     // auth handshake (not just a TCP probe) is the true readiness signal,
     // since a TCP-open port during early sshd startup can still reject auth.
     if let Err(e) =
-        aws::instance::wait_for_ssh_ready(&public_ip, &private_key_pem, Duration::from_secs(300)).await
+        aws::instance::wait_for_ssh_ready(&public_ip, &private_key_pem, Duration::from_secs(300))
+            .await
     {
         cleanup_and_fail(
             &app,

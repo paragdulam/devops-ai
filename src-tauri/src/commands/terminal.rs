@@ -14,7 +14,11 @@ pub async fn open_ssh_terminal(app: AppHandle, rental_id: String) -> Result<Stri
 }
 
 #[tauri::command]
-pub async fn write_terminal(app: AppHandle, session_id: String, data: String) -> Result<(), String> {
+pub async fn write_terminal(
+    app: AppHandle,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
     terminal::write(&app, &session_id, data.into_bytes()).await
 }
 

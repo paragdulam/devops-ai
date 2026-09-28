@@ -22,10 +22,7 @@ pub struct CloudAccount {
 }
 
 fn accounts_file_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| e.to_string())?;
+    let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join(ACCOUNTS_FILE))
 }
@@ -53,7 +50,8 @@ async fn validate_aws_credentials(
     access_key_id: &str,
     secret_access_key: &str,
 ) -> Result<(), String> {
-    let config = crate::aws::credentials::build_sdk_config(region, access_key_id, secret_access_key).await;
+    let config =
+        crate::aws::credentials::build_sdk_config(region, access_key_id, secret_access_key).await;
     let sts = aws_sdk_sts::Client::new(&config);
     sts.get_caller_identity()
         .send()
@@ -124,10 +122,7 @@ pub async fn delete_cloud_account(
 
 /// Not a Tauri command — used internally by the provisioning code to fetch an
 /// account plus its secret together. Never exposed over IPC.
-pub fn resolve_account_secret(
-    app: &AppHandle,
-    id: &str,
-) -> Result<(CloudAccount, String), String> {
+pub fn resolve_account_secret(app: &AppHandle, id: &str) -> Result<(CloudAccount, String), String> {
     let accounts = read_accounts(app)?;
     let account = accounts
         .into_iter()

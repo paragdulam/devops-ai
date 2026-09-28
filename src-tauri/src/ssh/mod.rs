@@ -109,9 +109,20 @@ pub async fn connect(
         ..Default::default()
     });
 
-    let mut handle = russh::client::connect(config, (host, 22), AcceptAllHandler)
-        .await
-        .map_err(|e| format!("Could not open SSH connection to {host}: {e}"))?;
+    // A blocked network path (security group, missing route) drops packets
+    // silently rather than refusing the connection, so the underlying TCP
+    // connect can hang on OS-level retries for a minute or more per attempt
+    // with no explicit bound here otherwise — starving the caller's retry
+    // loop (e.g. `wait_for_ssh_ready`) of the many quick attempts it expects
+    // to make within its budget, and making "still booting" indistinguishable
+    // from "permanently blocked" in the resulting timeout.
+    let mut handle = tokio::time::timeout(
+        Duration::from_secs(8),
+        russh::client::connect(config, (host, 22), AcceptAllHandler),
+    )
+    .await
+    .map_err(|_| format!("Timed out opening SSH connection to {host}"))?
+    .map_err(|e| format!("Could not open SSH connection to {host}: {e}"))?;
 
     let auth = handle
         .authenticate_publickey(user, PrivateKeyWithHashAlg::new(Arc::new(key), None))

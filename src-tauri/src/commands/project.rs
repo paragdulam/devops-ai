@@ -83,11 +83,7 @@ fn build_project_info(path: &str) -> ProjectInfo {
         .map(|mut entries| entries.next().is_none())
         .unwrap_or(true);
 
-    let (file_count, total_size_bytes) = if readable {
-        walk_stats(p)
-    } else {
-        (0, 0)
-    };
+    let (file_count, total_size_bytes) = if readable { walk_stats(p) } else { (0, 0) };
 
     ProjectInfo {
         name,

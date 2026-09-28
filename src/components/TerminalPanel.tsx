@@ -23,12 +23,20 @@ export function TerminalPanel({ rentalId, onClose }: { rentalId: string; onClose
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
     fitAddon.fit();
+    term.focus();
 
     const resizeObserver = new ResizeObserver(() => {
       fitAddon.fit();
       if (sessionId) void resizeTerminal(sessionId, term.cols, term.rows);
     });
     resizeObserver.observe(containerRef.current);
+
+    // Safety net: xterm only grabs keyboard focus on an explicit .focus()
+    // call, and doesn't reclaim it if something else in the app steals it —
+    // clicking back into the panel should always make it typeable again.
+    const container = containerRef.current;
+    const refocus = () => term.focus();
+    container.addEventListener("mousedown", refocus);
 
     openSshTerminal(rentalId)
       .then(async (id) => {
@@ -39,6 +47,7 @@ export function TerminalPanel({ rentalId, onClose }: { rentalId: string; onClose
         sessionId = id;
         void resizeTerminal(id, term.cols, term.rows);
         unlisten = await onTerminalData(id, (chunk) => term.write(chunk));
+        term.focus();
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -51,6 +60,7 @@ export function TerminalPanel({ rentalId, onClose }: { rentalId: string; onClose
     return () => {
       cancelled = true;
       resizeObserver.disconnect();
+      container.removeEventListener("mousedown", refocus);
       dataDisposable.dispose();
       unlisten?.();
       if (sessionId) void closeTerminal(sessionId);

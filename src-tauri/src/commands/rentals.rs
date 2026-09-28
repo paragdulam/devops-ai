@@ -30,7 +30,15 @@ pub async fn start_rental(
 
     let app_for_task = app.clone();
     tauri::async_runtime::spawn(async move {
-        rentals::provision(app_for_task, id, account_id, machine_profile, vm_username, vm_password).await;
+        rentals::provision(
+            app_for_task,
+            id,
+            account_id,
+            machine_profile,
+            vm_username,
+            vm_password,
+        )
+        .await;
     });
 
     Ok(dto)

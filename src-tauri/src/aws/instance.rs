@@ -1,6 +1,6 @@
 use aws_sdk_ec2::types::{
-    InstanceNetworkInterfaceSpecification, InstanceStateName, InstanceType, ResourceType, Tag,
-    TagSpecification,
+    BlockDeviceMapping, EbsBlockDevice, InstanceNetworkInterfaceSpecification, InstanceStateName,
+    InstanceType, ResourceType, Tag, TagSpecification, VolumeType,
 };
 use aws_sdk_ec2::Client;
 use std::net::ToSocketAddrs;
@@ -15,12 +15,17 @@ pub struct MachineProfile {
     /// `"standard"` today — a hook for later profiles (e.g. Android dev
     /// tooling), not a catalog UI.
     pub ansible_packages: &'static [&'static str],
+    /// Root volume size in GiB. Canonical's Ubuntu AMIs default to 8 GiB,
+    /// which isn't enough once a cloned repo, its build artifacts, and any
+    /// package manager caches land on the same disk.
+    pub root_volume_gb: i32,
 }
 
 const PROFILES: &[MachineProfile] = &[MachineProfile {
     id: "standard",
     instance_type: "m5.2xlarge",
     ansible_packages: &[],
+    root_volume_gb: 100,
 }];
 
 pub fn profile_for(id: &str) -> Result<&'static MachineProfile, String> {
@@ -33,6 +38,8 @@ pub fn profile_for(id: &str) -> Result<&'static MachineProfile, String> {
 pub async fn launch_instance(
     ec2: &Client,
     ami_id: &str,
+    root_device_name: &str,
+    root_volume_gb: i32,
     instance_type: &str,
     subnet_id: &str,
     security_group_id: &str,
@@ -46,10 +53,47 @@ pub async fn launch_instance(
         .associate_public_ip_address(true)
         .build();
 
-    let tags = TagSpecification::builder()
+    let name_tag = Tag::builder()
+        .key("Name")
+        .value(format!("rdm-rental-{rental_id}"))
+        .build();
+    let rental_tag = Tag::builder()
+        .key("remote-dev-machine-rental-id")
+        .value(rental_id)
+        .build();
+
+    let instance_tags = TagSpecification::builder()
         .resource_type(ResourceType::Instance)
-        .tags(Tag::builder().key("Name").value(format!("rdm-rental-{rental_id}")).build())
-        .tags(Tag::builder().key("remote-dev-machine-rental-id").value(rental_id).build())
+        .tags(name_tag.clone())
+        .tags(rental_tag.clone())
+        .build();
+
+    // `RunInstances` also creates the root EBS volume, and some accounts
+    // enforce a tag condition on resource creation (e.g. "every created
+    // resource must carry this tag"). Tagging only the instance leaves the
+    // volume untagged, which can make that condition deny just the volume
+    // half of the launch — the instance comes up, but its root volume never
+    // actually gets created ("the volume ... does not exist" in the console).
+    let volume_tags = TagSpecification::builder()
+        .resource_type(ResourceType::Volume)
+        .tags(name_tag)
+        .tags(rental_tag)
+        .build();
+
+    // Overrides the AMI's default (8 GiB for stock Ubuntu images) — cloning a
+    // repo plus its build artifacts/package caches doesn't fit in that.
+    // `delete_on_termination` is set explicitly here rather than relying on
+    // the AMI's own default, so the volume is guaranteed to go away with the
+    // instance regardless of what any future AMI ships.
+    let root_volume = BlockDeviceMapping::builder()
+        .device_name(root_device_name)
+        .ebs(
+            EbsBlockDevice::builder()
+                .volume_size(root_volume_gb)
+                .volume_type(VolumeType::Gp3)
+                .delete_on_termination(true)
+                .build(),
+        )
         .build();
 
     let output = ec2
@@ -60,7 +104,9 @@ pub async fn launch_instance(
         .max_count(1)
         .key_name(key_name)
         .network_interfaces(nic)
-        .tag_specifications(tags)
+        .block_device_mappings(root_volume)
+        .tag_specifications(instance_tags)
+        .tag_specifications(volume_tags)
         .send()
         .await
         .map_err(|e| format!("Could not launch EC2 instance: {e:?}"))?;
