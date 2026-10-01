@@ -12,6 +12,7 @@ const projectInfo: ProjectInfo = {
   fileCount: 10,
   totalSizeBytes: 2048,
   kind: "general",
+  tools: [],
 };
 
 const rental: Rental = {
@@ -75,8 +76,9 @@ describe("IDE recommendation", () => {
     ["general", ["vscode"]],
   ] as const)("recommends %s -> %j", (kind, ides) => {
     const next = rentalReducer(createInitialState("standard"), {
-      type: "PROJECT_KIND_DETECTED",
+      type: "PROJECT_DETECTED",
       kind,
+      tools: [],
     });
     expect(next.projectKind).toBe(kind);
     expect(next.selectedIdes).toEqual(ides);
@@ -84,13 +86,55 @@ describe("IDE recommendation", () => {
 
   it("keeps a manual override until a new project is detected", () => {
     let state = rentalReducer(createInitialState("standard"), {
-      type: "PROJECT_KIND_DETECTED",
+      type: "PROJECT_DETECTED",
       kind: "android",
+      tools: [],
     });
     state = rentalReducer(state, { type: "IDES_CHANGED", ides: ["vscode", "androidStudio"] });
     expect(state.selectedIdes).toEqual(["vscode", "androidStudio"]);
 
-    state = rentalReducer(state, { type: "PROJECT_KIND_DETECTED", kind: null });
+    state = rentalReducer(state, { type: "PROJECT_DETECTED", kind: null, tools: [] });
     expect(state.selectedIdes).toEqual(["vscode", "androidStudio"]);
+  });
+});
+
+describe("toolchain", () => {
+  const node20 = { tool: "node", version: "20", source: "readme" } as const;
+  const java17 = { tool: "java", version: "temurin-17", source: "kindDefault" } as const;
+
+  it("seeds the tools from detection", () => {
+    const state = rentalReducer(createInitialState("standard"), {
+      type: "PROJECT_DETECTED",
+      kind: "reactNative",
+      tools: [node20, java17],
+    });
+    expect(state.selectedTools).toEqual([node20, java17]);
+  });
+
+  it("keeps edits while detection is pending, replaces them for a new project", () => {
+    let state = rentalReducer(createInitialState("standard"), {
+      type: "PROJECT_DETECTED",
+      kind: "general",
+      tools: [node20],
+    });
+    const edited = [{ ...node20, version: "22", source: "user" as const }];
+    state = rentalReducer(state, { type: "TOOLS_CHANGED", tools: edited });
+    expect(state.selectedTools).toEqual(edited);
+
+    state = rentalReducer(state, { type: "PROJECT_DETECTED", kind: null, tools: [] });
+    expect(state.selectedTools).toEqual(edited);
+
+    state = rentalReducer(state, { type: "PROJECT_DETECTED", kind: "android", tools: [java17] });
+    expect(state.selectedTools).toEqual([java17]);
+  });
+
+  it("clears the tools when the project source changes", () => {
+    let state = rentalReducer(createInitialState("standard"), {
+      type: "PROJECT_DETECTED",
+      kind: "general",
+      tools: [node20],
+    });
+    state = rentalReducer(state, { type: "PROJECT_SOURCE_CHANGED", source: "github" });
+    expect(state.selectedTools).toEqual([]);
   });
 });

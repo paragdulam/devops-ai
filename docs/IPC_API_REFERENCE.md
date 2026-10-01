@@ -16,7 +16,7 @@ There are exactly **7 registered commands** — this is the entire IPC surface o
 | **Frontend call site** | `src/lib/project.ts: inspectProjectFolder(path)` |
 | **Used by** | `ProjectPicker.tsx`, after the user picks a folder via the native dialog |
 
-Walks the directory off the async runtime (`spawn_blocking`), skipping `IGNORE_DIRS` (`.git`, `node_modules`, `target`, `dist`, `build`, `.venv`, `__pycache__`, `.next`, `.turbo`), and returns file count / total size / existence / readability / emptiness.
+Walks the directory off the async runtime (`spawn_blocking`), skipping `IGNORE_DIRS` (`.git`, `node_modules`, `target`, `dist`, `build`, `.venv`, `__pycache__`, `.next`, `.turbo`), and returns file count / total size / existence / readability / emptiness, plus the detected project `kind` and `tools` (`toolchain::detect_local` — see `detect_github_project` below for how tools are detected).
 
 ---
 
@@ -67,12 +67,12 @@ Deletes the keyring entry (best-effort) and removes the account from `accounts.j
 | | |
 |---|---|
 | **Rust fn** | `commands/rentals.rs` |
-| **Params** | `account_id: String, machine_profile: String, project_name: String` |
+| **Params** | `account_id: String, machine_profile: String, project_name: String, vm_username: String, vm_password: String, github_repo: Option<GithubRepoSelection>, ides: Vec<Ide>, tools: Vec<ToolRequirement>` |
 | **Returns** | `Result<RentalDto, String>` |
 | **Frontend call site** | `src/services/awsRentalService.ts: AwsRentalService.createRental(req)` |
 | **Used by** | `HomeScreen.tsx` "START RENTING" button |
 
-Creates a `RentalRecord` (status `REQUESTED`), inserts it into the in-memory map, and returns its DTO **immediately** — then spawns `rentals::provision(...)` as a detached background task that does the actual AWS work. See [`RENTAL_LIFECYCLE.md`](RENTAL_LIFECYCLE.md) for the full provisioning sequence.
+Rejects the call up front if any of `tools` fails `toolchain::validate` (tool not in the allowlist, or a version outside `[A-Za-z0-9._+-]{1,40}`) — README text is untrusted and ends up in the generated playbook. Otherwise creates a `RentalRecord` (status `REQUESTED`), inserts it into the in-memory map, and returns its DTO **immediately** — then spawns `rentals::provision(...)` as a detached background task that does the actual AWS work. See [`RENTAL_LIFECYCLE.md`](RENTAL_LIFECYCLE.md) for the full provisioning sequence.
 
 ---
 
@@ -101,6 +101,24 @@ Pure read from the in-memory map; errors if no rental with that id exists.
 | **Used by** | `StopRentingButton.tsx` (behind `ConfirmDialog`) |
 
 If the rental is already `RELEASED`, returns immediately with no side effects. Otherwise flips status to `STOPPING` synchronously and returns that DTO, then spawns `rentals::stop(...)` as a detached background task to terminate the instance and release the security group.
+
+### `detect_github_project`
+
+| | |
+|---|---|
+| **Rust fn** | `commands/github.rs` |
+| **Params** | `account_id: String, full_name: String, branch: String` |
+| **Returns** | `Result<ProjectDetection { kind: ProjectKind, tools: Vec<ToolRequirement> }, String>` |
+| **Frontend call site** | `src/lib/project.ts: detectGithubProject(...)` |
+| **Used by** | `src/state/useProjectDetection.ts` (called once from `HomeScreen`), feeding `IdePicker` and `ToolchainPicker` |
+
+Fetches `project_kind::MARKER_FILES` ∪ `toolchain::TOOLCHAIN_FILES` concurrently via the GitHub contents API (`github::fetch_repo_files`). `kind` comes from `project_kind::classify`. `tools` comes from `toolchain::detect`, which uses these sources in order, keeping the first one that names each tool:
+
+1. **README.md**: version-manager commands (`nvm install 20`, `pyenv install 3.12.1`, `mise use node@20`, …), then prose like `Node.js 20` / `Python >= 3.11`, then bare tool names listed under a Prerequisites/Requirements-style heading, which install at `latest`.
+2. **Version files**: `.tool-versions`, `mise.toml`, `.nvmrc`, `.python-version`, `go.mod`, `rust-toolchain(.toml)`, `package.json` `packageManager`/`engines`, `pubspec.yaml` `environment.flutter`.
+3. **Project-kind defaults**: Flutter → `flutter@latest`; Android/React Native → `java@temurin-17`; any `package.json` → `node@lts`.
+
+The confirmed list is passed to `start_rental` and installed on the VM by mise, as the Ansible `toolchain` phase that runs after the repo clone.
 
 ## Non-`invoke()` bridges
 

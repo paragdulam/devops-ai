@@ -20,6 +20,7 @@ describe("MockRentalService", () => {
       vmUsername: "dev",
       vmPassword: "correct-horse-battery-staple",
       ides: ["vscode"],
+      tools: [],
     });
     expect(rental.status).toBe(RentalStatus.REQUESTED);
 
@@ -51,6 +52,7 @@ describe("MockRentalService", () => {
       vmUsername: "dev",
       vmPassword: "correct-horse-battery-staple",
       ides: ["vscode"],
+      tools: [],
     });
     await vi.advanceTimersByTimeAsync(STEP_DELAY_MS * 5); // reach RUNNING
 
@@ -76,6 +78,7 @@ describe("MockRentalService", () => {
       vmUsername: "dev",
       vmPassword: "correct-horse-battery-staple",
       ides: ["vscode"],
+      tools: [],
     });
 
     await vi.advanceTimersByTimeAsync(STEP_DELAY_MS * 2);

@@ -1,4 +1,5 @@
 use crate::project_kind::Ide;
+use crate::toolchain::ToolRequirement;
 use serde::Deserialize;
 use sha_crypt::{PasswordHasher, ShaCrypt};
 use std::path::PathBuf;
@@ -34,6 +35,8 @@ pub struct ProvisionParams<'a> {
     pub vnc_password: &'a str,
     pub profile_packages: &'a [&'static str],
     pub ides: &'a [Ide],
+    /// Already checked by `toolchain::validate` in `start_rental`.
+    pub tools: &'a [ToolRequirement],
     pub clone: Option<&'a CloneSpec>,
 }
 
@@ -206,6 +209,159 @@ fn ide_tasks(ides: &[Ide]) -> String {
     tasks
 }
 
+/// Build prerequisites for tools mise compiles from source (Ruby always,
+/// Python only when no precompiled build matches).
+const TOOLCHAIN_BUILD_PACKAGES: &[&str] = &[
+    "curl",
+    "unzip",
+    "xz-utils",
+    "build-essential",
+    "libssl-dev",
+    "zlib1g-dev",
+    "libffi-dev",
+    "libyaml-dev",
+    "libreadline-dev",
+];
+
+/// Playbook tasks installing mise for the VM user and pinning the project's
+/// tools with it. Runs after the clone so mise can also honor the repo's own
+/// version files. A tool that fails to install is logged but doesn't fail
+/// the rental — the machine is still usable, and the user can retry with
+/// `mise use` from the terminal.
+fn toolchain_tasks(
+    vm_username: &str,
+    tools: &[ToolRequirement],
+    clone: Option<&CloneSpec>,
+) -> String {
+    if tools.is_empty() && clone.is_none() {
+        return String::new();
+    }
+
+    let home = format!("/home/{vm_username}");
+    let mise = format!("{home}/.local/bin/mise");
+    let build_packages = TOOLCHAIN_BUILD_PACKAGES
+        .iter()
+        .map(|p| format!("          - {p}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut tasks = format!(
+        r#"
+    - name: Install toolchain build prerequisites
+      tags: [toolchain]
+      ansible.builtin.apt:
+        name:
+{build_packages}
+        state: present
+
+    - name: Install mise
+      tags: [toolchain]
+      become_user: "{vm_username}"
+      ansible.builtin.shell: curl -fsSL https://mise.run | sh
+      args:
+        creates: "{mise}"
+
+    - name: Activate mise in interactive shells
+      tags: [toolchain]
+      become_user: "{vm_username}"
+      ansible.builtin.lineinfile:
+        path: "{home}/.bashrc"
+        line: 'eval "$({mise} activate bash)"'
+        create: true
+
+    # The desktop session doesn't run a login shell, so `xstartup` sources
+    # ~/.profile to hand these shims to IDEs launched from the XFCE menu.
+    - name: Put mise shims on PATH for desktop apps
+      tags: [toolchain]
+      become_user: "{vm_username}"
+      ansible.builtin.lineinfile:
+        path: "{home}/.profile"
+        line: 'export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"'
+        create: true
+      register: mise_profile_path
+
+    - name: Create the mise config directory
+      tags: [toolchain]
+      become_user: "{vm_username}"
+      ansible.builtin.file:
+        path: "{home}/.config/mise"
+        state: directory
+        mode: "0755"
+
+    - name: Let mise read .nvmrc / .python-version / .ruby-version / .java-version
+      tags: [toolchain]
+      become_user: "{vm_username}"
+      ansible.builtin.copy:
+        dest: "{home}/.config/mise/config.toml"
+        force: false
+        mode: "0644"
+        content: |
+          [settings]
+          idiomatic_version_file_enable_tools = ["node", "python", "ruby", "java", "go"]
+"#
+    );
+
+    if !tools.is_empty() {
+        let items = tools
+            .iter()
+            .map(|t| format!("        - \"{}@{}\"", t.tool, t.version))
+            .collect::<Vec<_>>()
+            .join("\n");
+        tasks.push_str(&format!(
+            r#"
+    - name: Install project tools with mise
+      tags: [toolchain]
+      become_user: "{vm_username}"
+      environment:
+        MISE_YES: "1"
+      ansible.builtin.command:
+        argv: ["{mise}", "use", "--global", "{{{{ item }}}}"]
+      loop:
+{items}
+      ignore_errors: true
+"#
+        ));
+    }
+
+    if let Some(c) = clone {
+        tasks.push_str(&format!(
+            r#"
+    - name: Trust the repository's mise config
+      tags: [toolchain]
+      become_user: "{vm_username}"
+      ansible.builtin.command:
+        argv: ["{mise}", "trust", "--all"]
+        chdir: "{home}/Documents/Projects/{dir}"
+      ignore_errors: true
+
+    - name: Install the repository's own pinned tools
+      tags: [toolchain]
+      become_user: "{vm_username}"
+      environment:
+        MISE_YES: "1"
+      ansible.builtin.command:
+        argv: ["{mise}", "install"]
+        chdir: "{home}/Documents/Projects/{dir}"
+      ignore_errors: true
+"#,
+            dir = c.dir_name,
+        ));
+    }
+
+    tasks.push_str(
+        r#"
+    - name: Restart the desktop session so it picks up mise shims
+      tags: [toolchain]
+      ansible.builtin.systemd:
+        name: rdm-vnc.service
+        state: restarted
+      when: mise_profile_path is changed
+"#,
+    );
+
+    tasks
+}
+
 /// Builds the playbook as a formatted string — same technique the old
 /// `aws::userdata::build_user_data` used for `#cloud-config`, new target
 /// format. Task order matches the "desktop setup before clone" requirement:
@@ -218,6 +374,7 @@ fn build_playbook(
     vnc_password: &str,
     profile_packages: &[&str],
     ides: &[Ide],
+    tools: &[ToolRequirement],
     clone: Option<&CloneSpec>,
 ) -> String {
     // `name: []` must stay on one line for an empty list — YAML doesn't allow
@@ -378,6 +535,7 @@ fn build_playbook(
           # Snap apps remap $HOME, so without an explicit XAUTHORITY they
           # can't find the X cookie and fail with "cannot open display".
           export XAUTHORITY="$HOME/.Xauthority"
+          [ -r "$HOME/.profile" ] && . "$HOME/.profile"
           exec startxfce4
 
     - name: Install the systemd unit for the VNC session
@@ -436,7 +594,7 @@ fn build_playbook(
       ansible.builtin.apt:
 {profile_packages_yaml}
         state: present
-{ide_tasks}{clone_task}"#,
+{ide_tasks}{clone_task}{toolchain_tasks}"#,
         vm_username = vm_username,
         password_hash = password_hash,
         authorized_key_line = authorized_key_line,
@@ -444,6 +602,7 @@ fn build_playbook(
         profile_packages_yaml = profile_packages_yaml,
         ide_tasks = ide_tasks(ides),
         clone_task = clone_task,
+        toolchain_tasks = toolchain_tasks(vm_username, tools, clone),
     )
 }
 
@@ -465,6 +624,7 @@ fn phase_for_tags(tags: &[String]) -> Option<&'static str> {
             "desktop" => return Some("desktop"),
             "packages" => return Some("packages"),
             "clone" => return Some("clone"),
+            "toolchain" => return Some("toolchain"),
             _ => {}
         }
     }
@@ -496,6 +656,7 @@ pub async fn provision(params: ProvisionParams<'_>) -> Result<(), String> {
         params.vnc_password,
         params.profile_packages,
         params.ides,
+        params.tools,
         params.clone,
     );
     std::fs::write(&playbook_path, &playbook).map_err(|e| e.to_string())?;
@@ -651,6 +812,7 @@ mod tests {
             "vncpass",
             &[],
             &[],
+            &[],
             None,
         );
         syntax_check(&playbook);
@@ -671,6 +833,18 @@ mod tests {
             "vncpass",
             &["openjdk-17-jdk", "gradle"],
             &[Ide::Vscode, Ide::AndroidStudio],
+            &[
+                ToolRequirement {
+                    tool: "node".to_string(),
+                    version: "20".to_string(),
+                    source: crate::toolchain::ToolSource::Readme,
+                },
+                ToolRequirement {
+                    tool: "java".to_string(),
+                    version: "temurin-17".to_string(),
+                    source: crate::toolchain::ToolSource::KindDefault,
+                },
+            ],
             Some(&clone),
         );
         syntax_check(&playbook);

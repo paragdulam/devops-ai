@@ -1,5 +1,7 @@
 use crate::github::{self, GithubAccount, GithubLinkState, GithubRepo, LinkStart, LinkStatus};
 use crate::project_kind::{self, ProjectKind};
+use crate::toolchain::{self, ToolRequirement};
+use serde::Serialize;
 use tauri::{AppHandle, State};
 
 #[tauri::command]
@@ -34,13 +36,30 @@ pub async fn list_github_repos(account_id: String) -> Result<Vec<GithubRepo>, St
     github::list_repos(&token).await
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDetection {
+    pub kind: ProjectKind,
+    pub tools: Vec<ToolRequirement>,
+}
+
+/// Classifies the repo and detects its toolchain (README first, then
+/// version files) from one concurrent fetch of the files both need.
 #[tauri::command]
-pub async fn detect_github_project_kind(
+pub async fn detect_github_project(
     account_id: String,
     full_name: String,
     branch: String,
-) -> Result<ProjectKind, String> {
+) -> Result<ProjectDetection, String> {
     let token = github::resolve_github_token(&account_id)?;
-    let files = github::fetch_marker_files(&token, &full_name, &branch).await;
-    Ok(project_kind::classify(&files))
+    let paths = project_kind::MARKER_FILES
+        .iter()
+        .chain(toolchain::TOOLCHAIN_FILES)
+        .copied();
+    let files = github::fetch_repo_files(&token, &full_name, &branch, paths).await;
+    let kind = project_kind::classify(&files);
+    Ok(ProjectDetection {
+        kind,
+        tools: toolchain::detect(&files, kind),
+    })
 }

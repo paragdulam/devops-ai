@@ -43,7 +43,7 @@ export interface GithubRepoSelectionRequest {
   defaultBranch: string;
 }
 
-import type { Ide } from "./project";
+import type { Ide, ToolRequirement } from "./project";
 
 export interface CreateRentalRequest {
   accountId: string;
@@ -53,6 +53,7 @@ export interface CreateRentalRequest {
   vmPassword: string;
   githubRepo?: GithubRepoSelectionRequest;
   ides: Ide[];
+  tools: ToolRequirement[];
 }
 
 export type CreateRentalResponse = Rental;

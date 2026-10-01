@@ -5,11 +5,14 @@ mod github;
 mod project_kind;
 mod rentals;
 mod ssh;
+mod toolchain;
 
-use commands::accounts::{add_cloud_account, delete_cloud_account, list_cloud_accounts, AccountsFileLock};
+use commands::accounts::{
+    add_cloud_account, delete_cloud_account, list_cloud_accounts, AccountsFileLock,
+};
 use commands::github::{
-    delete_github_account, detect_github_project_kind, get_github_link_status, link_github_account, list_github_accounts,
-    list_github_repos,
+    delete_github_account, detect_github_project, get_github_link_status, link_github_account,
+    list_github_accounts, list_github_repos,
 };
 use commands::project::inspect_project_folder;
 use commands::rentals::{get_provisioning_log, get_rental, start_rental, stop_rental};
@@ -42,7 +45,7 @@ pub fn run() {
             list_github_accounts,
             delete_github_account,
             list_github_repos,
-            detect_github_project_kind,
+            detect_github_project,
             open_ssh_terminal,
             write_terminal,
             resize_terminal,

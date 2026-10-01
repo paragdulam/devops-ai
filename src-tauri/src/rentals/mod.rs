@@ -3,6 +3,7 @@ use crate::aws;
 use crate::github;
 use crate::project_kind::Ide;
 use crate::ssh;
+use crate::toolchain::ToolRequirement;
 use aws_sdk_ec2::Client as Ec2Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -252,6 +253,7 @@ pub async fn provision(
     vm_username: String,
     vm_password: String,
     ides: Vec<Ide>,
+    tools: Vec<ToolRequirement>,
 ) {
     // Ansible cannot run as a control node on native Windows at all (an
     // upstream limitation, not something bundling could fix) — fail
@@ -498,6 +500,7 @@ pub async fn provision(
         vnc_password: &vnc_password,
         profile_packages: profile.ansible_packages,
         ides: &ides,
+        tools: &tools,
         clone: clone_spec.as_ref(),
     })
     .await;

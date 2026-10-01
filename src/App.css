@@ -12,6 +12,7 @@
 
 .project-picker,
 .ide-picker,
+.toolchain-picker,
 .machine-profile {
   margin-bottom: 1.5rem;
 }
@@ -266,4 +267,40 @@
 .ide-picker__options {
   display: flex;
   gap: 1.25rem;
+}
+
+.toolchain-picker__note {
+  margin: 0 0 0.5rem;
+  opacity: 0.8;
+}
+
+.toolchain-picker__list {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+}
+
+.toolchain-picker__row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.toolchain-picker__tool {
+  min-width: 7rem;
+  font-weight: 600;
+}
+
+.toolchain-picker__row input {
+  width: 9rem;
+}
+
+.toolchain-picker__invalid {
+  outline: 2px solid #d33;
+}
+
+.toolchain-picker__source {
+  font-size: 0.8rem;
+  opacity: 0.7;
 }

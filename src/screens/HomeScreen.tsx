@@ -2,15 +2,18 @@ import { useState } from "react";
 import { ProjectPicker } from "../components/ProjectPicker";
 import { MachineProfileCard } from "../components/MachineProfileCard";
 import { IdePicker } from "../components/IdePicker";
+import { ToolchainPicker } from "../components/ToolchainPicker";
 import { AccountPicker } from "../components/AccountPicker";
 import { VmCredentialsForm } from "../components/VmCredentialsForm";
 import { useRentalState } from "../state/RentalContext";
-import { isProjectValid } from "../types/project";
+import { useProjectDetection } from "../state/useProjectDetection";
+import { isProjectValid, isValidToolVersion } from "../types/project";
 import type { CreateRentalRequest } from "../types/rental";
 
 export function HomeScreen({ onOpenAccounts }: { onOpenAccounts: () => void }) {
   const { state, dispatch, rentalService } = useRentalState();
   const [starting, setStarting] = useState(false);
+  useProjectDetection();
 
   const hasValidLocalProject =
     state.projectSource === "local" && state.projectInfo !== null && isProjectValid(state.projectInfo);
@@ -18,8 +21,11 @@ export function HomeScreen({ onOpenAccounts }: { onOpenAccounts: () => void }) {
 
   const hasVmCredentials = state.vmUsername.trim() !== "" && state.vmPassword !== "";
 
+  const hasValidTools = state.selectedTools.every((t) => isValidToolVersion(t.version));
+
   const canStart =
     (hasValidLocalProject || hasValidGithubRepo) &&
+    hasValidTools &&
     state.selectedAccountId !== null &&
     hasVmCredentials &&
     !starting;
@@ -43,6 +49,7 @@ export function HomeScreen({ onOpenAccounts }: { onOpenAccounts: () => void }) {
               defaultBranch: state.selectedGithubRepo.repo.defaultBranch,
             },
             ides: state.selectedIdes,
+            tools: state.selectedTools,
           }
         : {
             accountId: state.selectedAccountId,
@@ -51,6 +58,7 @@ export function HomeScreen({ onOpenAccounts }: { onOpenAccounts: () => void }) {
             vmUsername: state.vmUsername,
             vmPassword: state.vmPassword,
             ides: state.selectedIdes,
+            tools: state.selectedTools,
           };
 
     setStarting(true);
@@ -72,6 +80,7 @@ export function HomeScreen({ onOpenAccounts }: { onOpenAccounts: () => void }) {
       <h1>Remote Dev</h1>
       <ProjectPicker />
       <IdePicker />
+      <ToolchainPicker />
       <MachineProfileCard />
       <AccountPicker onManageAccounts={onOpenAccounts} />
       <VmCredentialsForm />

@@ -37,7 +37,7 @@ const STATUS_STEP_INDEX: Record<RentalStatus, number | "all-done" | "error"> = {
 // events (see `ansible::phase_for_tags` on the Rust side) — tracked while
 // status is PROVISIONING, giving real per-task granularity instead of the
 // single guessed "Creating VM" step below.
-const PROVISIONING_PHASES = ["user", "desktop", "packages", "clone"] as const;
+const PROVISIONING_PHASES = ["user", "desktop", "packages", "clone", "toolchain"] as const;
 export type ProvisioningPhase = (typeof PROVISIONING_PHASES)[number];
 
 const PROVISIONING_PHASE_LABELS: Record<ProvisioningPhase, string> = {
@@ -45,6 +45,7 @@ const PROVISIONING_PHASE_LABELS: Record<ProvisioningPhase, string> = {
   desktop: "Setting up desktop & VNC",
   packages: "Installing packages",
   clone: "Cloning repository",
+  toolchain: "Installing project tools (mise)",
 };
 
 export function getChecklistSteps(

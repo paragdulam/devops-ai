@@ -1,5 +1,6 @@
 use crate::project_kind::Ide;
 use crate::rentals::{self, GithubRepoSelection, RentalDto, RentalStatus, RentalsState};
+use crate::toolchain::{self, ToolRequirement};
 use tauri::{AppHandle, State};
 
 #[tauri::command]
@@ -13,7 +14,9 @@ pub async fn start_rental(
     vm_password: String,
     github_repo: Option<GithubRepoSelection>,
     ides: Vec<Ide>,
+    tools: Vec<ToolRequirement>,
 ) -> Result<RentalDto, String> {
+    toolchain::validate(&tools)?;
     let id = uuid::Uuid::new_v4().to_string();
     let record = rentals::new_record(
         id.clone(),
@@ -40,6 +43,7 @@ pub async fn start_rental(
             vm_username,
             vm_password,
             ides,
+            tools,
         )
         .await;
     });

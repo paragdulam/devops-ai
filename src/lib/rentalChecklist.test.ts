@@ -49,17 +49,23 @@ describe("getChecklistSteps", () => {
 
   it("drives real per-task phases once Ansible events arrive during PROVISIONING", () => {
     const steps = getChecklistSteps(RentalStatus.PROVISIONING, "desktop");
-    expect(steps.map((s) => s.state)).toEqual(["done", "current", "pending", "pending"]);
+    expect(steps.map((s) => s.state)).toEqual(["done", "current", "pending", "pending", "pending"]);
     expect(steps.map((s) => s.label)).toEqual([
       "Creating VM login",
       "Setting up desktop & VNC",
       "Installing packages",
       "Cloning repository",
+      "Installing project tools (mise)",
     ]);
   });
 
-  it("marks all provisioning phases done once past the last one", () => {
+  it("marks earlier provisioning phases done while cloning", () => {
     const steps = getChecklistSteps(RentalStatus.PROVISIONING, "clone");
-    expect(steps.map((s) => s.state)).toEqual(["done", "done", "done", "current"]);
+    expect(steps.map((s) => s.state)).toEqual(["done", "done", "done", "current", "pending"]);
+  });
+
+  it("tracks the mise toolchain phase last", () => {
+    const steps = getChecklistSteps(RentalStatus.PROVISIONING, "toolchain");
+    expect(steps.map((s) => s.state)).toEqual(["done", "done", "done", "done", "current"]);
   });
 });

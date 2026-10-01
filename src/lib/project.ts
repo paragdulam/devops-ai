@@ -1,6 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import type { ProjectInfo, ProjectKind } from "../types/project";
+import type { ProjectDetection, ProjectInfo } from "../types/project";
 
 export async function pickProjectFolder(): Promise<string | null> {
   const selected = await open({ directory: true, multiple: false });
@@ -12,12 +12,12 @@ export async function inspectProjectFolder(path: string): Promise<ProjectInfo> {
   return invoke<ProjectInfo>("inspect_project_folder", { path });
 }
 
-export async function detectGithubProjectKind(
+export async function detectGithubProject(
   accountId: string,
   fullName: string,
   branch: string,
-): Promise<ProjectKind> {
-  return invoke<ProjectKind>("detect_github_project_kind", { accountId, fullName, branch });
+): Promise<ProjectDetection> {
+  return invoke<ProjectDetection>("detect_github_project", { accountId, fullName, branch });
 }
 
 export function formatSize(bytes: number): string {

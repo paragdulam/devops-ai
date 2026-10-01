@@ -1,4 +1,5 @@
 use crate::project_kind::{self, ProjectKind};
+use crate::toolchain::{self, ToolRequirement};
 use serde::Serialize;
 use std::path::Path;
 use walkdir::WalkDir;
@@ -29,6 +30,7 @@ pub struct ProjectInfo {
     pub file_count: u64,
     pub total_size_bytes: u64,
     pub kind: ProjectKind,
+    pub tools: Vec<ToolRequirement>,
 }
 
 fn should_skip(entry: &walkdir::DirEntry) -> bool {
@@ -77,6 +79,7 @@ fn build_project_info(path: &str) -> ProjectInfo {
             file_count: 0,
             total_size_bytes: 0,
             kind: ProjectKind::General,
+            tools: Vec::new(),
         };
     }
 
@@ -87,6 +90,7 @@ fn build_project_info(path: &str) -> ProjectInfo {
         .unwrap_or(true);
 
     let (file_count, total_size_bytes) = if readable { walk_stats(p) } else { (0, 0) };
+    let kind = project_kind::classify_local(p);
 
     ProjectInfo {
         name,
@@ -96,7 +100,8 @@ fn build_project_info(path: &str) -> ProjectInfo {
         is_empty,
         file_count,
         total_size_bytes,
-        kind: project_kind::classify_local(p),
+        kind,
+        tools: toolchain::detect_local(p, kind),
     }
 }
 

@@ -325,19 +325,20 @@ pub async fn list_repos(token: &str) -> Result<Vec<GithubRepo>, String> {
     Ok(repos)
 }
 
-/// Fetches whichever of `project_kind::MARKER_FILES` exist at the tip of
-/// `branch`, via the contents API (raw media type), concurrently. A missing
-/// file (404) or any per-file failure just leaves it out — classification
-/// treats absent files the same either way.
-pub async fn fetch_marker_files(
+/// Fetches whichever of `paths` exist at the tip of `branch`, via the
+/// contents API (raw media type), concurrently. A missing file (404) or any
+/// per-file failure just leaves it out — detection treats absent files the
+/// same either way.
+pub async fn fetch_repo_files(
     token: &str,
     full_name: &str,
     branch: &str,
+    paths: impl IntoIterator<Item = &'static str>,
 ) -> std::collections::HashMap<&'static str, String> {
     let client = reqwest::Client::new();
     let mut tasks = tokio::task::JoinSet::new();
 
-    for &path in crate::project_kind::MARKER_FILES {
+    for path in paths {
         let request = client
             .get(format!(
                 "https://api.github.com/repos/{full_name}/contents/{path}"
