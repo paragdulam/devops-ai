@@ -122,6 +122,7 @@
   position: relative;
   flex: 1;
   min-height: 200px;
+  aspect-ratio: 16 / 9;
   border-radius: 8px;
   background: #000;
   overflow: hidden;
@@ -136,17 +137,16 @@
   overflow: hidden;
 }
 
+/* noVNC scales the framebuffer itself (scaleViewport) to fit this box and
+   maps pointer coordinates accordingly — never size its canvas with CSS, or
+   clicks land at the wrong remote position. */
 .remote-panel__screen-canvas {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: absolute;
+  inset: 0;
 }
 
-.remote-panel__screen-canvas canvas {
-  max-width: 100%;
-  max-height: 100%;
+.remote-panel--expanded .remote-panel__screen {
+  aspect-ratio: auto;
 }
 
 .remote-panel__screen-overlay {

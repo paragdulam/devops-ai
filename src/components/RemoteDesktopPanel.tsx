@@ -36,6 +36,9 @@ export function RemoteDesktopPanel({
     const rfb = new RFB(screenRef.current, url, {
       credentials: { password: connection.vncPassword },
     });
+    // Fit the remote screen to the panel; noVNC then translates pointer
+    // positions back to framebuffer coordinates.
+    rfb.scaleViewport = true;
 
     const handleConnect = () => {
       setConnected(true);
