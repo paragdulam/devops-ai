@@ -66,8 +66,12 @@ mod tests {
         // Compare only the algorithm+key material fields (first two
         // whitespace-separated tokens), since OpenSSH pubkey lines can carry
         // a trailing comment that isn't part of the key itself.
-        let key_fields =
-            |line: &str| -> String { line.split_whitespace().take(2).collect::<Vec<_>>().join(" ") };
+        let key_fields = |line: &str| -> String {
+            line.split_whitespace()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
         assert_eq!(
             key_fields(&public_key),
             key_fields(&round_tripped_public),

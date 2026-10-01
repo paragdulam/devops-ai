@@ -1,3 +1,4 @@
+use crate::project_kind::{self, ProjectKind};
 use serde::Serialize;
 use std::path::Path;
 use walkdir::WalkDir;
@@ -27,6 +28,7 @@ pub struct ProjectInfo {
     pub is_empty: bool,
     pub file_count: u64,
     pub total_size_bytes: u64,
+    pub kind: ProjectKind,
 }
 
 fn should_skip(entry: &walkdir::DirEntry) -> bool {
@@ -74,6 +76,7 @@ fn build_project_info(path: &str) -> ProjectInfo {
             is_empty: true,
             file_count: 0,
             total_size_bytes: 0,
+            kind: ProjectKind::General,
         };
     }
 
@@ -93,6 +96,7 @@ fn build_project_info(path: &str) -> ProjectInfo {
         is_empty,
         file_count,
         total_size_bytes,
+        kind: project_kind::classify_local(p),
     }
 }
 

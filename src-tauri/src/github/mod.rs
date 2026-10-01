@@ -324,3 +324,39 @@ pub async fn list_repos(token: &str) -> Result<Vec<GithubRepo>, String> {
 
     Ok(repos)
 }
+
+/// Fetches whichever of `project_kind::MARKER_FILES` exist at the tip of
+/// `branch`, via the contents API (raw media type), concurrently. A missing
+/// file (404) or any per-file failure just leaves it out — classification
+/// treats absent files the same either way.
+pub async fn fetch_marker_files(
+    token: &str,
+    full_name: &str,
+    branch: &str,
+) -> std::collections::HashMap<&'static str, String> {
+    let client = reqwest::Client::new();
+    let mut tasks = tokio::task::JoinSet::new();
+
+    for &path in crate::project_kind::MARKER_FILES {
+        let request = client
+            .get(format!(
+                "https://api.github.com/repos/{full_name}/contents/{path}"
+            ))
+            .bearer_auth(token)
+            .header("User-Agent", "remote-dev-machine")
+            .header("Accept", "application/vnd.github.raw+json")
+            .query(&[("ref", branch)]);
+        tasks.spawn(async move {
+            let response = request.send().await.ok()?.error_for_status().ok()?;
+            Some((path, response.text().await.ok()?))
+        });
+    }
+
+    let mut files = std::collections::HashMap::new();
+    while let Some(result) = tasks.join_next().await {
+        if let Ok(Some((path, content))) = result {
+            files.insert(path, content);
+        }
+    }
+    files
+}

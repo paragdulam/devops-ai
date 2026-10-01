@@ -1,3 +1,4 @@
+use crate::project_kind::Ide;
 use serde::Deserialize;
 use sha_crypt::{PasswordHasher, ShaCrypt};
 use std::path::PathBuf;
@@ -32,10 +33,9 @@ pub struct ProvisionParams<'a> {
     /// cloud-init now.
     pub vnc_password: &'a str,
     pub profile_packages: &'a [&'static str],
+    pub ides: &'a [Ide],
     pub clone: Option<&'a CloneSpec>,
 }
-
-const SALT_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789./";
 
 /// Hashes the VM login password in Rust (SHA-512-crypt, the format `/etc/
 /// shadow` and Ansible's `user` module both expect) rather than via
@@ -43,12 +43,17 @@ const SALT_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 /// in the Python environment `ansible-playbook` runs under — this keeps
 /// `ansible-core` the only external requirement. The plaintext password is
 /// never templated into the generated playbook.
+///
+/// `sha-crypt` takes *raw* salt bytes and Base64-encodes them into the MCF
+/// salt field. SHA-crypt only uses the first 16 salt characters, so the salt
+/// must be exactly 12 raw bytes (-> 16 Base64 chars). A longer salt yields a
+/// hash like `$6$rounds=5000$<22 chars>$...`; glibc/libxcrypt `crypt()` then
+/// re-emits a truncated 16-char salt when verifying, the strings never
+/// compare equal, and every login/sudo reports "incorrect password".
 fn hash_password(password: &str) -> Result<String, String> {
-    let salt: String = (0..16)
-        .map(|_| SALT_CHARS[rand::random_range(0..SALT_CHARS.len())] as char)
-        .collect();
+    let salt: [u8; 12] = rand::random();
     let hash = ShaCrypt::SHA512
-        .hash_password_with_salt(password.as_bytes(), salt.as_bytes())
+        .hash_password_with_salt(password.as_bytes(), &salt)
         .map_err(|e| format!("Could not hash VM password: {e:?}"))?;
     Ok(hash.as_str().to_string())
 }
@@ -111,6 +116,96 @@ fn build_inventory(host: &str, key_path: &std::path::Path) -> String {
     )
 }
 
+/// Pinned Android Studio release (Linux tarball + its published SHA-256 from
+/// developer.android.com/studio). Bump both together to upgrade; the IDE's
+/// own updater takes over once it's installed.
+const ANDROID_STUDIO_URL: &str = "https://edgedl.me.gvt1.com/android/studio/ide-zips/2026.1.4.8/android-studio-quail4-patch1-linux.tar.gz";
+const ANDROID_STUDIO_SHA256: &str =
+    "25c97ca6c6b505f2a20bff962dfd28718327f61e25b09a9bc915f1dae7b1e534";
+
+/// Playbook tasks installing the selected IDEs. Tagged `packages` so they
+/// report under the existing checklist phase rather than adding a new one.
+fn ide_tasks(ides: &[Ide]) -> String {
+    let mut tasks = String::new();
+
+    // Installed from Microsoft's .deb rather than by adding the APT repo
+    // ourselves: the package's postinst registers that same repo with its
+    // own key, and a second hand-added entry with a different `signed-by`
+    // makes every later `apt update` fail with "Conflicting values".
+    if ides.contains(&Ide::Vscode) {
+        tasks.push_str(
+            r#"
+    - name: Download VS Code
+      tags: [packages]
+      ansible.builtin.get_url:
+        url: https://update.code.visualstudio.com/latest/linux-deb-x64/stable
+        dest: /tmp/vscode.deb
+        mode: "0644"
+
+    - name: Install VS Code
+      tags: [packages]
+      ansible.builtin.apt:
+        deb: /tmp/vscode.deb
+"#,
+        );
+    }
+
+    if ides.contains(&Ide::AndroidStudio) {
+        tasks.push_str(&format!(
+            r#"
+    - name: Download Android Studio
+      tags: [packages]
+      ansible.builtin.get_url:
+        url: "{url}"
+        dest: /tmp/android-studio.tar.gz
+        checksum: "sha256:{sha}"
+        timeout: 600
+        mode: "0644"
+
+    - name: Unpack Android Studio into /opt
+      tags: [packages]
+      ansible.builtin.unarchive:
+        src: /tmp/android-studio.tar.gz
+        dest: /opt
+        remote_src: true
+        creates: /opt/android-studio/bin/studio
+
+    - name: Remove the Android Studio download
+      tags: [packages]
+      ansible.builtin.file:
+        path: /tmp/android-studio.tar.gz
+        state: absent
+
+    - name: Put android-studio on PATH
+      tags: [packages]
+      ansible.builtin.file:
+        src: /opt/android-studio/bin/studio
+        dest: /usr/local/bin/android-studio
+        state: link
+
+    - name: Add Android Studio to the desktop menu
+      tags: [packages]
+      ansible.builtin.copy:
+        dest: /usr/share/applications/android-studio.desktop
+        mode: "0644"
+        content: |
+          [Desktop Entry]
+          Type=Application
+          Name=Android Studio
+          Exec=/opt/android-studio/bin/studio %f
+          Icon=/opt/android-studio/bin/studio.svg
+          Categories=Development;IDE;
+          Terminal=false
+          StartupWMClass=jetbrains-studio
+"#,
+            url = ANDROID_STUDIO_URL,
+            sha = ANDROID_STUDIO_SHA256,
+        ));
+    }
+
+    tasks
+}
+
 /// Builds the playbook as a formatted string — same technique the old
 /// `aws::userdata::build_user_data` used for `#cloud-config`, new target
 /// format. Task order matches the "desktop setup before clone" requirement:
@@ -122,6 +217,7 @@ fn build_playbook(
     authorized_key_line: &str,
     vnc_password: &str,
     profile_packages: &[&str],
+    ides: &[Ide],
     clone: Option<&CloneSpec>,
 ) -> String {
     // `name: []` must stay on one line for an empty list — YAML doesn't allow
@@ -182,6 +278,40 @@ fn build_playbook(
           - novnc
           - python3-websockify
           - git
+
+    # Ubuntu 22.04's `firefox` apt package is only a shim that installs the
+    # snap, which can't open the VNC display (see xstartup below). Install
+    # the real .deb from Mozilla's APT repo instead, pinned above the shim.
+    - name: Add Mozilla's APT signing key
+      tags: [base]
+      ansible.builtin.get_url:
+        url: https://packages.mozilla.org/apt/repo-signing-key.gpg
+        dest: /etc/apt/keyrings/packages.mozilla.org.asc
+        mode: "0644"
+
+    - name: Add Mozilla's APT repository
+      tags: [base]
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/mozilla.list
+        mode: "0644"
+        content: |
+          deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main
+
+    - name: Prefer Mozilla's Firefox over the Ubuntu snap shim
+      tags: [base]
+      ansible.builtin.copy:
+        dest: /etc/apt/preferences.d/mozilla
+        mode: "0644"
+        content: |
+          Package: *
+          Pin: origin packages.mozilla.org
+          Pin-Priority: 1000
+
+    - name: Install Firefox
+      tags: [base]
+      ansible.builtin.apt:
+        update_cache: true
+        name: firefox
 
     - name: Create the VM login user
       tags: [user]
@@ -245,6 +375,9 @@ fn build_playbook(
         mode: "0755"
         content: |
           #!/bin/sh
+          # Snap apps remap $HOME, so without an explicit XAUTHORITY they
+          # can't find the X cookie and fail with "cannot open display".
+          export XAUTHORITY="$HOME/.Xauthority"
           exec startxfce4
 
     - name: Install the systemd unit for the VNC session
@@ -303,12 +436,13 @@ fn build_playbook(
       ansible.builtin.apt:
 {profile_packages_yaml}
         state: present
-{clone_task}"#,
+{ide_tasks}{clone_task}"#,
         vm_username = vm_username,
         password_hash = password_hash,
         authorized_key_line = authorized_key_line,
         vnc_password = vnc_password,
         profile_packages_yaml = profile_packages_yaml,
+        ide_tasks = ide_tasks(ides),
         clone_task = clone_task,
     )
 }
@@ -361,6 +495,7 @@ pub async fn provision(params: ProvisionParams<'_>) -> Result<(), String> {
         params.authorized_key_line,
         params.vnc_password,
         params.profile_packages,
+        params.ides,
         params.clone,
     );
     std::fs::write(&playbook_path, &playbook).map_err(|e| e.to_string())?;
@@ -492,6 +627,20 @@ mod tests {
         (path, file)
     }
 
+    /// Regression test for a real bug: a salt longer than 16 chars in the
+    /// stored hash made every VM login/sudo fail with "incorrect password",
+    /// since `crypt()` truncates the salt and its output no longer matches.
+    #[test]
+    fn password_hash_salt_is_crypt_compatible() {
+        let hash = hash_password("s3cret!").unwrap();
+        let fields: Vec<&str> = hash.split('$').collect();
+        // ["", "6", "rounds=5000", salt, digest]
+        assert_eq!(fields.len(), 5, "unexpected hash shape: {hash}");
+        assert_eq!(fields[1], "6");
+        assert_eq!(fields[3].len(), 16, "salt must be exactly 16 chars: {hash}");
+        assert_eq!(fields[4].len(), 86);
+    }
+
     #[test]
     fn playbook_with_empty_profile_packages_is_valid_yaml() {
         let hash = hash_password("s3cret!").unwrap();
@@ -500,6 +649,7 @@ mod tests {
             &hash,
             "ssh-ed25519 AAAA... key",
             "vncpass",
+            &[],
             &[],
             None,
         );
@@ -520,6 +670,7 @@ mod tests {
             "ssh-ed25519 AAAA... key",
             "vncpass",
             &["openjdk-17-jdk", "gradle"],
+            &[Ide::Vscode, Ide::AndroidStudio],
             Some(&clone),
         );
         syntax_check(&playbook);

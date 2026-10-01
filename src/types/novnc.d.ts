@@ -17,5 +17,7 @@ declare module "@novnc/novnc" {
     scaleViewport: boolean;
     disconnect(): void;
     sendCredentials(credentials: RFBCredentials): void;
+    sendKey(keysym: number, code: string | null, down?: boolean): void;
+    clipboardPasteFrom(text: string): void;
   }
 }

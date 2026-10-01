@@ -1,3 +1,4 @@
+use crate::project_kind::Ide;
 use crate::rentals::{self, GithubRepoSelection, RentalDto, RentalStatus, RentalsState};
 use tauri::{AppHandle, State};
 
@@ -11,6 +12,7 @@ pub async fn start_rental(
     vm_username: String,
     vm_password: String,
     github_repo: Option<GithubRepoSelection>,
+    ides: Vec<Ide>,
 ) -> Result<RentalDto, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let record = rentals::new_record(
@@ -37,6 +39,7 @@ pub async fn start_rental(
             machine_profile,
             vm_username,
             vm_password,
+            ides,
         )
         .await;
     });
