@@ -2,7 +2,6 @@ use crate::project_kind::ProjectKind;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::LazyLock;
 
 /// Where a detected tool requirement came from — shown as a badge in the UI
@@ -470,19 +469,6 @@ pub fn detect(files: &HashMap<&str, String>, kind: ProjectKind) -> Vec<ToolRequi
     }
 
     out
-}
-
-pub fn detect_local(root: &Path, kind: ProjectKind) -> Vec<ToolRequirement> {
-    let files = crate::project_kind::MARKER_FILES
-        .iter()
-        .chain(TOOLCHAIN_FILES)
-        .filter_map(|&name| {
-            std::fs::read_to_string(root.join(name))
-                .ok()
-                .map(|content| (name, content))
-        })
-        .collect();
-    detect(&files, kind)
 }
 
 /// Gatekeeper before anything reaches the playbook: README text is

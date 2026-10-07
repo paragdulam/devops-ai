@@ -1,26 +1,19 @@
-import { useEffect } from "react";
-import { detectGithubProject } from "../lib/project";
+import { useEffect, useRef } from "react";
+import { detectGithubProject } from "../lib/github";
 import { useRentalState } from "./RentalContext";
 
-// Detects the picked project's type and toolchain, feeding both the IDE and
-// toolchain recommendations. Called once from HomeScreen so the GitHub
-// fetch isn't duplicated per picker.
+// Detects the selected repo's type and toolchain, feeding both the IDE and
+// toolchain recommendations. Called once from WorkspaceScreen so the GitHub
+// fetch isn't duplicated per picker. A repo whose draft already holds a
+// detection result (re-selected from the sidebar) is not fetched again.
 export function useProjectDetection() {
   const { state, dispatch } = useRentalState();
-  const { projectSource, projectInfo, selectedGithubRepo } = state;
+  const { selectedGithubRepo, projectKind } = state;
+  const detectedRef = useRef(projectKind !== null);
+  detectedRef.current = projectKind !== null;
 
   useEffect(() => {
-    if (projectSource === "local") {
-      dispatch({
-        type: "PROJECT_DETECTED",
-        kind: projectInfo?.kind ?? null,
-        tools: projectInfo?.tools ?? [],
-      });
-      return;
-    }
-
-    dispatch({ type: "PROJECT_DETECTED", kind: null, tools: [] });
-    if (!selectedGithubRepo) return;
+    if (!selectedGithubRepo || detectedRef.current) return;
 
     let cancelled = false;
     const { accountId, repo } = selectedGithubRepo;
@@ -32,5 +25,5 @@ export function useProjectDetection() {
     return () => {
       cancelled = true;
     };
-  }, [projectSource, projectInfo, selectedGithubRepo, dispatch]);
+  }, [selectedGithubRepo, dispatch]);
 }

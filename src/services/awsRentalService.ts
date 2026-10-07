@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CreateRentalRequest, Rental } from "../types/rental";
+import type { ActualCost, CreateRentalRequest, Rental } from "../types/rental";
 import type { RentalService } from "./rentalService";
 
 const POLL_INTERVAL_MS = 1500;
@@ -24,6 +24,18 @@ export class AwsRentalService implements RentalService {
 
   getRental(id: string): Promise<Rental> {
     return invoke<Rental>("get_rental", { id });
+  }
+
+  listRentals(): Promise<Rental[]> {
+    return invoke<Rental[]>("list_rentals");
+  }
+
+  async refreshAccess(id: string): Promise<void> {
+    await invoke("refresh_rental_access", { id });
+  }
+
+  getActualCost(id: string, force = false): Promise<ActualCost> {
+    return invoke<ActualCost>("get_rental_actual_cost", { id, force });
   }
 
   stopRental(id: string): Promise<Rental> {

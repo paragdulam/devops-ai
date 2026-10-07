@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import RFB from "@novnc/novnc";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { useRentalState } from "../state/RentalContext";
-import { RentalStatus } from "../types/rental";
+import { RentalStatus, type Rental } from "../types/rental";
 import { StopRentingButton } from "./StopRentingButton";
 
 // X11 keysyms used to synthesize the VM-side paste chord.
@@ -17,26 +17,42 @@ const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 // contents with its own canvas) — status text renders as a separate overlay
 // sibling rather than mixing React-rendered children into that node.
 export function RemoteDesktopPanel({
-  rentalId,
+  rental,
   expanded,
   onToggleExpand,
 }: {
-  rentalId: string;
+  rental: Rental;
   expanded: boolean;
   onToggleExpand: () => void;
 }) {
-  const { state } = useRentalState();
+  const { rentalService } = useRentalState();
+  // Bumped to force a fresh RFB connection (see handleReconnect).
+  const [reconnectKey, setReconnectKey] = useState(0);
   const screenRef = useRef<HTMLDivElement>(null);
   const [connected, setConnected] = useState(false);
   const [statusMessage, setStatusMessage] = useState(
     "Waiting for the remote machine to become ready…",
   );
 
-  const rental = state.rental;
-  const connection = rental?.connection ?? null;
+  const connection = rental.connection;
   const canConnect =
     connection !== null &&
-    (rental?.status === RentalStatus.READY || rental?.status === RentalStatus.RUNNING);
+    (rental.status === RentalStatus.READY || rental.status === RentalStatus.RUNNING);
+
+  // The security group is scoped to the IP the rental started from — if this
+  // machine's IP has changed since, re-scope it, then reconnect.
+  async function handleReconnect() {
+    setStatusMessage("Refreshing access…");
+    try {
+      await rentalService.refreshAccess(rental.id);
+    } catch (err) {
+      setStatusMessage(
+        `Could not refresh access: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+    setReconnectKey((k) => k + 1);
+  }
 
   useEffect(() => {
     if (!canConnect || !connection || !screenRef.current) return;
@@ -129,7 +145,7 @@ export function RemoteDesktopPanel({
     };
     // Reconnect only when the connection target itself changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connection?.publicIp, connection?.vncPort, connection?.vncPassword, canConnect]);
+  }, [connection?.publicIp, connection?.vncPort, connection?.vncPassword, canConnect, reconnectKey]);
 
   return (
     <div className={`remote-panel remote-panel--desktop${expanded ? " remote-panel--expanded" : ""}`}>
@@ -137,10 +153,15 @@ export function RemoteDesktopPanel({
         <button type="button" onClick={onToggleExpand}>
           {expanded ? "Shrink" : "Full Screen"}
         </button>
-        {expanded && <StopRentingButton label="Disconnect" />}
+        {canConnect && !connected && (
+          <button type="button" onClick={handleReconnect}>
+            Reconnect
+          </button>
+        )}
+        {expanded && <StopRentingButton rentalId={rental.id} label="Disconnect" />}
       </div>
       <div className="remote-panel__screen">
-        <div ref={screenRef} className="remote-panel__screen-canvas" data-rental-id={rentalId} />
+        <div ref={screenRef} className="remote-panel__screen-canvas" data-rental-id={rental.id} />
         {!connected && <div className="remote-panel__screen-overlay">{statusMessage}</div>}
       </div>
     </div>

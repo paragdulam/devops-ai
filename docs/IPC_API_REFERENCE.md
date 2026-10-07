@@ -2,23 +2,9 @@
 
 The frontend and Rust backend communicate exclusively through **Tauri commands** — `@tauri-apps/api/core`'s `invoke(command, args)` calling into `#[tauri::command]` functions registered in `src-tauri/src/lib.rs`'s `tauri::generate_handler![...]`. Argument objects use camelCase keys; Tauri/serde maps them onto the Rust functions' snake_case parameters automatically.
 
-There are exactly **7 registered commands** — this is the entire IPC surface of the app.
+This is the entire IPC surface of the app (plus the GitHub-linking and terminal commands, which are documented in their modules).
 
 ## Commands
-
-### `inspect_project_folder`
-
-| | |
-|---|---|
-| **Rust fn** | `commands/project.rs` |
-| **Params** | `path: String` |
-| **Returns** | `Result<ProjectInfo, String>` |
-| **Frontend call site** | `src/lib/project.ts: inspectProjectFolder(path)` |
-| **Used by** | `ProjectPicker.tsx`, after the user picks a folder via the native dialog |
-
-Walks the directory off the async runtime (`spawn_blocking`), skipping `IGNORE_DIRS` (`.git`, `node_modules`, `target`, `dist`, `build`, `.venv`, `__pycache__`, `.next`, `.turbo`), and returns file count / total size / existence / readability / emptiness, plus the detected project `kind` and `tools` (`toolchain::detect_local` — see `detect_github_project` below for how tools are detected).
-
----
 
 ### `list_cloud_accounts`
 
@@ -102,6 +88,44 @@ Pure read from the in-memory map; errors if no rental with that id exists.
 
 If the rental is already `RELEASED`, returns immediately with no side effects. Otherwise flips status to `STOPPING` synchronously and returns that DTO, then spawns `rentals::stop(...)` as a detached background task to terminate the instance and release the security group.
 
+### `list_rentals`
+
+| | |
+|---|---|
+| **Rust fn** | `commands/rentals.rs` |
+| **Returns** | `Result<Vec<RentalDto>, String>` |
+| **Frontend call site** | `AwsRentalService.listRentals()`, via `useRentalSync` on launch |
+
+Every rental the backend knows about, including those restored from `rentals.json` (see `rentals::restore` / `rentals::reconcile`). `RentalDto` carries `launchedAt`, `hourlyRateUsd` and `rateSource` for cost display.
+
+---
+
+### `refresh_rental_access`
+
+| | |
+|---|---|
+| **Rust fn** | `commands/rentals.rs` |
+| **Params** | `id: String` |
+| **Returns** | `Result<(), String>` |
+| **Used by** | The Desktop tab's Reconnect button |
+
+Re-scopes the rental's security group (SSH + noVNC) to the caller's current public IP.
+
+---
+
+### `get_rental_actual_cost`
+
+| | |
+|---|---|
+| **Rust fn** | `commands/rentals.rs` → `rentals::actual_cost` → `aws/cost.rs` |
+| **Params** | `id: String`, `force?: bool` |
+| **Returns** | `Result<ActualCost, String>` — `{ state: "available", amountUsd, throughDate }` or `{ state: "unavailable", reason }` |
+| **Frontend call site** | `AwsRentalService.getActualCost()`, from `RentalActualCost` |
+
+Billed cost from AWS Cost Explorer, filtered by the `remote-dev-machine-rental-id` tag. Each call is a **billed request ($0.01)**, so it is only made on user click and cached per rental for 1 hour (`force` bypasses the cache). Needs `ce:GetCostAndUsage`, the tag activated as a cost allocation tag in the Billing console, and data ~24 h old. The live estimate shown next to it is computed in the frontend (`src/lib/cost.ts`) from the hourly rate stored at launch (`aws/pricing.rs`: Price List API, built-in table as fallback).
+
+---
+
 ### `detect_github_project`
 
 | | |
@@ -122,7 +146,6 @@ The confirmed list is passed to `start_rental` and installed on the VM by mise, 
 
 ## Non-`invoke()` bridges
 
-- **Native folder picker**: `@tauri-apps/plugin-dialog`'s `open({ directory: true })`, used by `pickProjectFolder()` in `src/lib/project.ts`. Backed by the `tauri_plugin_dialog` plugin registered in `lib.rs`, permissioned via `dialog:allow-open` in `src-tauri/capabilities/default.json`. Not a custom `#[tauri::command]` — it's the plugin's own API.
 
 ## What is NOT IPC
 

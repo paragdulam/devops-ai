@@ -1,4 +1,4 @@
-import type { CreateRentalRequest, Rental } from "../types/rental";
+import type { ActualCost, CreateRentalRequest, Rental } from "../types/rental";
 
 // The seam Milestone 2 fills in with a real HTTP/WebSocket client.
 // Maps directly to the PRD §18 API surface:
@@ -12,6 +12,12 @@ import type { CreateRentalRequest, Rental } from "../types/rental";
 export interface RentalService {
   createRental(req: CreateRentalRequest): Promise<Rental>;
   getRental(id: string): Promise<Rental>;
+  // Rentals the backend already knows about (restored from disk at launch).
+  listRentals(): Promise<Rental[]>;
+  // Re-scopes the rental's firewall to this machine's current public IP.
+  refreshAccess(id: string): Promise<void>;
+  // Billed cost from AWS Cost Explorer (lags ~24h; each call costs $0.01).
+  getActualCost(id: string, force?: boolean): Promise<ActualCost>;
   stopRental(id: string): Promise<Rental>;
   subscribeToRental(id: string, onUpdate: (rental: Rental) => void): () => void;
 }

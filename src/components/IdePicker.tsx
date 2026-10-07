@@ -7,7 +7,7 @@ const ALL_IDES: Ide[] = ["vscode", "androidStudio"];
 // useProjectDetection); the user can override the choice before starting.
 export function IdePicker() {
   const { state, dispatch } = useRentalState();
-  const { projectSource, projectInfo, selectedGithubRepo, projectKind, selectedIdes } = state;
+  const { selectedGithubRepo, projectKind, selectedIdes } = state;
 
   function toggle(ide: Ide, checked: boolean) {
     const ides = checked
@@ -16,7 +16,7 @@ export function IdePicker() {
     dispatch({ type: "IDES_CHANGED", ides });
   }
 
-  const hasProject = projectSource === "local" ? projectInfo !== null : selectedGithubRepo !== null;
+  const hasProject = selectedGithubRepo !== null;
   const recommended = projectKind ? recommendedIdes(projectKind) : [];
 
   return (

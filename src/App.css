@@ -1,24 +1,19 @@
+body {
+  margin: 0;
+}
+
 :root {
   color-scheme: light dark;
 }
 
-.home-screen,
-.rental-screen {
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 2rem 1.5rem;
-  text-align: left;
+[hidden] {
+  display: none !important;
 }
 
-.project-picker,
 .ide-picker,
 .toolchain-picker,
 .machine-profile {
   margin-bottom: 1.5rem;
-}
-
-.project-summary__row span {
-  font-weight: 600;
 }
 
 .validation-error {
@@ -44,10 +39,6 @@
 .stop-renting-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.rental-screen__header {
-  margin-bottom: 1rem;
 }
 
 .rental-badge {
@@ -78,13 +69,6 @@
   width: 1.5rem;
 }
 
-.rental-screen__panels {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin: 1.5rem 0;
-}
-
 .remote-panel {
   border: 1px dashed var(--border-color, #8883);
   border-radius: 8px;
@@ -92,17 +76,16 @@
   min-height: 120px;
 }
 
-.remote-panel--desktop {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
+/* Desktop and terminal fill whatever the tab pane has left; the viewer
+   inside (noVNC / xterm) then fits itself to that box. */
+.remote-panel--desktop,
 .remote-panel--terminal {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  min-height: 320px;
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
 }
 
 .remote-panel--expanded {
@@ -123,8 +106,7 @@
 .remote-panel__screen {
   position: relative;
   flex: 1;
-  min-height: 200px;
-  aspect-ratio: 16 / 9;
+  min-height: 0;
   border-radius: 8px;
   background: #000;
   overflow: hidden;
@@ -133,7 +115,9 @@
 .remote-panel__terminal-canvas {
   flex: 1;
   width: 100%;
-  min-height: 260px;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 4px;
   border-radius: 8px;
   background: #000;
   overflow: hidden;
@@ -145,10 +129,6 @@
 .remote-panel__screen-canvas {
   position: absolute;
   inset: 0;
-}
-
-.remote-panel--expanded .remote-panel__screen {
-  aspect-ratio: auto;
 }
 
 .remote-panel__screen-overlay {
@@ -170,24 +150,12 @@
   pointer-events: none;
 }
 
-.rental-screen--desktop-expanded {
-  padding: 0;
-  max-width: none;
-}
-
-.rental-screen--desktop-expanded .rental-screen__panels {
-  margin: 0;
-  height: 100vh;
-}
-
-.rental-screen__footer {
-  display: flex;
-  justify-content: flex-end;
-}
-
 .confirm-dialog-overlay {
   position: fixed;
   inset: 0;
+  /* Above the desktop panel (z-index 10 when expanded) and the positioned
+     VNC canvas, which would otherwise swallow clicks on the dialog. */
+  z-index: 100;
   background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
@@ -303,4 +271,240 @@
 .toolchain-picker__source {
   font-size: 0.8rem;
   opacity: 0.7;
+}
+
+/* ---- Workspace: sidebar + detail ---- */
+
+.workspace {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  height: 100vh;
+  text-align: left;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border-right: 1px solid var(--border-color, #8883);
+  min-height: 0;
+}
+
+.segmented {
+  display: flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: #8882;
+}
+
+.segmented__option {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.segmented__option.active {
+  background: var(--segmented-active, #fff);
+  color: #111;
+  font-weight: 600;
+  box-shadow: 0 1px 2px #0003;
+}
+
+.sidebar__account {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.sidebar__account select {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar__search {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.sidebar__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  gap: 0.1rem;
+  padding: 0.45rem 0.6rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar__item:hover {
+  background: #8881;
+}
+
+.sidebar__item.selected {
+  background: #3b82f633;
+}
+
+.sidebar__item-name {
+  overflow-wrap: anywhere;
+}
+
+.sidebar__badge {
+  font-size: 0.75rem;
+}
+
+.sidebar__badge--live {
+  color: #2a9d3f;
+}
+
+.sidebar__badge--busy {
+  opacity: 0.7;
+}
+
+.sidebar__badge--failed {
+  color: #d33;
+}
+
+.sidebar__empty {
+  padding: 0.5rem 0.6rem;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.sidebar__footer {
+  border-top: 1px solid var(--border-color, #8883);
+  padding-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.sidebar__manage-accounts {
+  width: 100%;
+}
+
+.link-github__button {
+  width: 100%;
+}
+
+.workspace__detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 1.5rem;
+}
+
+.workspace__empty {
+  opacity: 0.7;
+}
+
+.repo-setup {
+  flex: 1;
+  min-height: 0;
+  max-width: 640px;
+  overflow-y: auto;
+}
+
+/* The selected VM fills the pane; only the Progress tab scrolls. */
+.vm-detail {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.vm-detail__pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.vm-detail__pane--scroll {
+  overflow-y: auto;
+}
+
+.vm-detail__header {
+  display: flex;
+  flex: none;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.vm-detail__header h1,
+.repo-setup h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.4rem;
+}
+
+.vm-tabs {
+  display: flex;
+  flex: none;
+  gap: 0.25rem;
+  margin: 1rem 0 0.75rem;
+  border-bottom: 1px solid var(--border-color, #8883);
+}
+
+.vm-tabs__tab {
+  padding: 0.4rem 0.9rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.vm-tabs__tab.active {
+  border-bottom-color: #3b82f6;
+  font-weight: 600;
+}
+
+.vm-tabs__tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.vm-detail__actions {
+  margin: 0.75rem 0;
+}
+
+.vm-detail__cost {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+}
+
+.rental-cost__hint {
+  opacity: 0.7;
+}
+
+.rental-cost--compact {
+  margin-left: 0.4rem;
+  color: inherit;
+  opacity: 0.8;
 }

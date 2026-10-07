@@ -1,19 +1,24 @@
 import { useState } from "react";
-import { RentalProvider, useRentalState } from "./state/RentalContext";
-import { HomeScreen } from "./screens/HomeScreen";
-import { RentalScreen } from "./screens/RentalScreen";
+import { RentalProvider } from "./state/RentalContext";
+import { WorkspaceScreen } from "./screens/WorkspaceScreen";
 import { AccountsScreen } from "./screens/AccountsScreen";
 import "./App.css";
 
 type View = "home" | "accounts";
 
 function Router() {
-  const { state } = useRentalState();
   const [view, setView] = useState<View>("home");
 
-  if (state.rental) return <RentalScreen />;
-  if (view === "accounts") return <AccountsScreen onBack={() => setView("home")} />;
-  return <HomeScreen onOpenAccounts={() => setView("accounts")} />;
+  // The workspace stays mounted (just hidden) behind the accounts screen so
+  // open VNC and terminal sessions survive a trip to manage accounts.
+  return (
+    <>
+      <div className="app-view" hidden={view !== "home"}>
+        <WorkspaceScreen onOpenAccounts={() => setView("accounts")} />
+      </div>
+      {view === "accounts" && <AccountsScreen onBack={() => setView("home")} />}
+    </>
+  );
 }
 
 function App() {

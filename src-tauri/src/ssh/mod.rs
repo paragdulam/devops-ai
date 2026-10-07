@@ -7,10 +7,12 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 const SSH_KEYRING_SERVICE: &str = "com.paragdulam.remotedevmachine.ssh";
+const VNC_KEYRING_SERVICE: &str = "com.paragdulam.remotedevmachine.vnc";
 const PASSWORD_CHARS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 
-/// A random per-rental VNC password. Never persisted to disk — held only in
-/// the in-memory rental record for the lifetime of the rental.
+/// A random per-rental VNC password. Never written to the rentals file — the
+/// in-memory record holds it, and the keyring copy (see `store_vnc_password`)
+/// lets a restarted app reattach to a still-running rental.
 pub fn generate_vnc_password() -> String {
     (0..12)
         .map(|_| {
@@ -32,6 +34,26 @@ pub fn load_private_key(rental_id: &str) -> Result<String, String> {
         .map_err(|e| e.to_string())?
         .get_password()
         .map_err(|e| e.to_string())
+}
+
+pub fn store_vnc_password(rental_id: &str, password: &str) -> Result<(), String> {
+    keyring::Entry::new(VNC_KEYRING_SERVICE, rental_id)
+        .map_err(|e| e.to_string())?
+        .set_password(password)
+        .map_err(|e| e.to_string())
+}
+
+pub fn load_vnc_password(rental_id: &str) -> Option<String> {
+    keyring::Entry::new(VNC_KEYRING_SERVICE, rental_id)
+        .ok()?
+        .get_password()
+        .ok()
+}
+
+pub fn delete_vnc_password(rental_id: &str) {
+    if let Ok(entry) = keyring::Entry::new(VNC_KEYRING_SERVICE, rental_id) {
+        let _ = entry.delete_credential();
+    }
 }
 
 pub fn delete_stored_key(rental_id: &str) {

@@ -11,9 +11,9 @@ import {
 // rental starts.
 export function ToolchainPicker() {
   const { state, dispatch } = useRentalState();
-  const { projectSource, projectInfo, selectedGithubRepo, projectKind, selectedTools } = state;
+  const { selectedGithubRepo, projectKind, selectedTools } = state;
 
-  const hasProject = projectSource === "local" ? projectInfo !== null : selectedGithubRepo !== null;
+  const hasProject = selectedGithubRepo !== null;
   const addable = Object.keys(TOOL_LABELS).filter(
     (tool) => !selectedTools.some((t) => t.tool === tool),
   );

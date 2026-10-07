@@ -4,8 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { closeTerminal, onTerminalData, openSshTerminal, resizeTerminal, writeTerminal } from "../lib/terminal";
 
-// On-demand only — opened via an explicit button, not mounted with the rest
-// of the rental screen. Each open() call gets its own SSH PTY session on the
+// On-demand only — mounted the first time the Terminal tab is opened. Each open() call gets its own SSH PTY session on the
 // Rust side (src-tauri/src/ssh/terminal.rs), closed when this unmounts.
 export function TerminalPanel({ rentalId, onClose }: { rentalId: string; onClose: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -26,6 +25,8 @@ export function TerminalPanel({ rentalId, onClose }: { rentalId: string; onClose
     term.focus();
 
     const resizeObserver = new ResizeObserver(() => {
+      // Hidden tabs report a zero size; fitting then would collapse the PTY.
+      if (!containerRef.current?.offsetWidth) return;
       fitAddon.fit();
       if (sessionId) void resizeTerminal(sessionId, term.cols, term.rows);
     });

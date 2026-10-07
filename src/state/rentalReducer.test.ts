@@ -1,19 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { createInitialState, rentalReducer } from "./rentalReducer";
+import {
+  createInitialState,
+  rentalForKey,
+  rentalReducer,
+  repoKey,
+  type AppState,
+} from "./rentalReducer";
 import { RentalStatus, type Rental } from "../types/rental";
-import type { ProjectInfo } from "../types/project";
-
-const projectInfo: ProjectInfo = {
-  name: "my-app",
-  path: "/tmp/my-app",
-  exists: true,
-  readable: true,
-  isEmpty: false,
-  fileCount: 10,
-  totalSizeBytes: 2048,
-  kind: "general",
-  tools: [],
-};
+import type { GithubRepo } from "../types/github";
 
 const rental: Rental = {
   id: "rental-1",
@@ -21,52 +15,171 @@ const rental: Rental = {
   ec2InstanceId: null,
   machineProfile: "standard",
   projectName: "my-app",
-  createdAt: new Date().toISOString(),
+  githubRepo: {
+    githubAccountId: "gh-1",
+    repoName: "my-app",
+    fullName: "acme/my-app",
+    cloneUrl: "https://github.com/acme/my-app.git",
+    defaultBranch: "main",
+  },
+  createdAt: "2026-01-01T00:00:00.000Z",
   startedAt: null,
   stoppedAt: null,
   connection: null,
 };
 
-describe("rentalReducer", () => {
-  it("stores the selected project", () => {
-    const state = rentalReducer(createInitialState("standard"), {
-      type: "PROJECT_SELECTED",
-      projectInfo,
-    });
-    expect(state.projectInfo).toEqual(projectInfo);
+const repo = (name: string): GithubRepo => ({
+  id: name.length,
+  name,
+  fullName: `acme/${name}`,
+  private: false,
+  cloneUrl: `https://github.com/acme/${name}.git`,
+  defaultBranch: "main",
+});
+
+const initial = () => createInitialState("standard");
+
+function withRental(state: AppState, r: Rental): AppState {
+  return rentalReducer(state, { type: "RENTAL_CREATED", rental: r });
+}
+
+describe("rentals", () => {
+  it("tracks several rentals at once", () => {
+    let state = withRental(initial(), rental);
+    state = withRental(state, { ...rental, id: "rental-2" });
+    expect(Object.keys(state.rentals).sort()).toEqual(["rental-1", "rental-2"]);
   });
 
-  it("stores a newly created rental", () => {
-    const state = rentalReducer(createInitialState("standard"), {
-      type: "RENTAL_CREATED",
-      rental,
+  it("applies updates to the matching rental only", () => {
+    let state = withRental(initial(), rental);
+    state = withRental(state, { ...rental, id: "rental-2" });
+    state = rentalReducer(state, {
+      type: "RENTAL_UPDATED",
+      rental: { ...rental, status: RentalStatus.RUNNING },
     });
-    expect(state.rental).toEqual(rental);
+    expect(state.rentals["rental-1"].status).toBe(RentalStatus.RUNNING);
+    expect(state.rentals["rental-2"].status).toBe(RentalStatus.REQUESTED);
   });
 
-  it("applies rental updates", () => {
-    const withRental = rentalReducer(createInitialState("standard"), {
-      type: "RENTAL_CREATED",
-      rental,
+  it("removes a rental", () => {
+    const state = rentalReducer(withRental(initial(), rental), {
+      type: "RENTAL_REMOVED",
+      rentalId: "rental-1",
     });
-    const updated: Rental = { ...rental, status: RentalStatus.RUNNING };
-    const state = rentalReducer(withRental, { type: "RENTAL_UPDATED", rental: updated });
-    expect(state.rental?.status).toBe(RentalStatus.RUNNING);
+    expect(state.rentals).toEqual({});
   });
 
-  it("clears the rental back to null on RESET", () => {
-    const withRental = rentalReducer(createInitialState("standard"), {
-      type: "RENTAL_CREATED",
-      rental,
+  it("hydrates restored rentals without overwriting fresher ones", () => {
+    const running = { ...rental, status: RentalStatus.RUNNING };
+    const state = rentalReducer(withRental(initial(), running), {
+      type: "RENTALS_LOADED",
+      rentals: [rental, { ...rental, id: "rental-2", status: RentalStatus.RUNNING }],
     });
-    const state = rentalReducer(withRental, { type: "RESET" });
-    expect(state.rental).toBeNull();
+    expect(state.rentals["rental-1"].status).toBe(RentalStatus.RUNNING);
+    expect(state.rentals["rental-2"]).toBeDefined();
+  });
+
+  it("opens on the Rentals tab when launching into restored live rentals", () => {
+    const state = rentalReducer(initial(), {
+      type: "RENTALS_LOADED",
+      rentals: [{ ...rental, status: RentalStatus.RUNNING }],
+    });
+    expect(state.sidebarTab).toBe("rentals");
+  });
+
+  it("finds a repo's current rental, ignoring released ones", () => {
+    const key = repoKey("gh-1", "acme/my-app");
+    let state = withRental(initial(), { ...rental, status: RentalStatus.RELEASED });
+    expect(rentalForKey(state.rentals, key)).toBeNull();
+    state = withRental(state, { ...rental, id: "rental-2", createdAt: "2026-02-01T00:00:00.000Z" });
+    expect(rentalForKey(state.rentals, key)?.id).toBe("rental-2");
+    expect(rentalForKey(state.rentals, null)).toBeNull();
+  });
+});
+
+describe("moving a repo to Rentals", () => {
+  const key = repoKey("gh-1", "acme/my-app");
+  const provisioning = { ...rental, status: RentalStatus.PROVISIONING };
+  const running = { ...rental, status: RentalStatus.RUNNING };
+
+  function selectedAndProvisioning(): AppState {
+    let state = rentalReducer(initial(), {
+      type: "GITHUB_REPO_SELECTED",
+      selection: { accountId: "gh-1", repo: repo("my-app") },
+    });
+    state = withRental(state, provisioning);
+    return state;
+  }
+
+  it("switches to the Rentals tab when the selected repo's rental first goes live", () => {
+    const state = rentalReducer(selectedAndProvisioning(), {
+      type: "RENTAL_UPDATED",
+      rental: running,
+    });
+    expect(state.selectedRepoKey).toBe(key);
+    expect(state.sidebarTab).toBe("rentals");
+  });
+
+  it("leaves the tab alone if the user moved to another repo meanwhile", () => {
+    let state = selectedAndProvisioning();
+    state = rentalReducer(state, {
+      type: "GITHUB_REPO_SELECTED",
+      selection: { accountId: "gh-1", repo: repo("other") },
+    });
+    state = rentalReducer(state, { type: "RENTAL_UPDATED", rental: running });
+    expect(state.sidebarTab).toBe("repos");
+  });
+
+  it("does not switch again on later updates of an already-live rental", () => {
+    let state = rentalReducer(selectedAndProvisioning(), {
+      type: "RENTAL_UPDATED",
+      rental: running,
+    });
+    state = rentalReducer(state, { type: "SIDEBAR_TAB_CHANGED", tab: "repos" });
+    state = rentalReducer(state, { type: "RENTAL_UPDATED", rental: running });
+    expect(state.sidebarTab).toBe("repos");
+  });
+
+  it("selects a rental's repo from the Rentals tab", () => {
+    const state = rentalReducer(withRental(initial(), running), {
+      type: "RENTAL_SELECTED",
+      rentalId: "rental-1",
+    });
+    expect(state.selectedRepoKey).toBe(key);
+  });
+});
+
+describe("per-repo setup drafts", () => {
+  const node = { tool: "node", version: "20", source: "readme" } as const;
+
+  it("restores a repo's edits when it is selected again", () => {
+    let state = rentalReducer(initial(), {
+      type: "GITHUB_REPO_SELECTED",
+      selection: { accountId: "gh-1", repo: repo("app-a") },
+    });
+    state = rentalReducer(state, { type: "PROJECT_DETECTED", kind: "android", tools: [node] });
+    state = rentalReducer(state, { type: "IDES_CHANGED", ides: ["vscode", "androidStudio"] });
+
+    state = rentalReducer(state, {
+      type: "GITHUB_REPO_SELECTED",
+      selection: { accountId: "gh-1", repo: repo("app-b") },
+    });
+    expect(state.projectKind).toBeNull();
+    expect(state.selectedTools).toEqual([]);
+
+    state = rentalReducer(state, {
+      type: "GITHUB_REPO_SELECTED",
+      selection: { accountId: "gh-1", repo: repo("app-a") },
+    });
+    expect(state.projectKind).toBe("android");
+    expect(state.selectedTools).toEqual([node]);
+    expect(state.selectedIdes).toEqual(["vscode", "androidStudio"]);
   });
 });
 
 describe("IDE recommendation", () => {
   it("defaults to VS Code before any project is detected", () => {
-    expect(createInitialState("standard").selectedIdes).toEqual(["vscode"]);
+    expect(initial().selectedIdes).toEqual(["vscode"]);
   });
 
   it.each([
@@ -75,7 +188,7 @@ describe("IDE recommendation", () => {
     ["reactNative", ["androidStudio"]],
     ["general", ["vscode"]],
   ] as const)("recommends %s -> %j", (kind, ides) => {
-    const next = rentalReducer(createInitialState("standard"), {
+    const next = rentalReducer(initial(), {
       type: "PROJECT_DETECTED",
       kind,
       tools: [],
@@ -85,7 +198,7 @@ describe("IDE recommendation", () => {
   });
 
   it("keeps a manual override until a new project is detected", () => {
-    let state = rentalReducer(createInitialState("standard"), {
+    let state = rentalReducer(initial(), {
       type: "PROJECT_DETECTED",
       kind: "android",
       tools: [],
@@ -103,7 +216,7 @@ describe("toolchain", () => {
   const java17 = { tool: "java", version: "temurin-17", source: "kindDefault" } as const;
 
   it("seeds the tools from detection", () => {
-    const state = rentalReducer(createInitialState("standard"), {
+    const state = rentalReducer(initial(), {
       type: "PROJECT_DETECTED",
       kind: "reactNative",
       tools: [node20, java17],
@@ -112,7 +225,7 @@ describe("toolchain", () => {
   });
 
   it("keeps edits while detection is pending, replaces them for a new project", () => {
-    let state = rentalReducer(createInitialState("standard"), {
+    let state = rentalReducer(initial(), {
       type: "PROJECT_DETECTED",
       kind: "general",
       tools: [node20],
@@ -126,15 +239,5 @@ describe("toolchain", () => {
 
     state = rentalReducer(state, { type: "PROJECT_DETECTED", kind: "android", tools: [java17] });
     expect(state.selectedTools).toEqual([java17]);
-  });
-
-  it("clears the tools when the project source changes", () => {
-    let state = rentalReducer(createInitialState("standard"), {
-      type: "PROJECT_DETECTED",
-      kind: "general",
-      tools: [node20],
-    });
-    state = rentalReducer(state, { type: "PROJECT_SOURCE_CHANGED", source: "github" });
-    expect(state.selectedTools).toEqual([]);
   });
 });

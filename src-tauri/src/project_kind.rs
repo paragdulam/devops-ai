@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
 
 /// What kind of project was picked — drives which IDE the UI recommends
 /// preinstalling on the VM.
@@ -68,18 +67,6 @@ pub fn classify(files: &HashMap<&str, String>) -> ProjectKind {
     }
 
     ProjectKind::General
-}
-
-pub fn classify_local(root: &Path) -> ProjectKind {
-    let files = MARKER_FILES
-        .iter()
-        .filter_map(|&name| {
-            std::fs::read_to_string(root.join(name))
-                .ok()
-                .map(|content| (name, content))
-        })
-        .collect();
-    classify(&files)
 }
 
 #[cfg(test)]

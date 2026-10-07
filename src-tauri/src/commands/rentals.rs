@@ -6,7 +6,6 @@ use tauri::{AppHandle, State};
 #[tauri::command]
 pub async fn start_rental(
     app: AppHandle,
-    state: State<'_, RentalsState>,
     account_id: String,
     machine_profile: String,
     project_name: String,
@@ -28,10 +27,7 @@ pub async fn start_rental(
     );
     let dto = record.to_dto();
 
-    {
-        let mut map = state.0.lock().await;
-        map.insert(id.clone(), record);
-    }
+    rentals::insert_record(&app, record).await;
 
     let app_for_task = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -60,6 +56,25 @@ pub async fn get_rental(state: State<'_, RentalsState>, id: String) -> Result<Re
 }
 
 #[tauri::command]
+pub async fn list_rentals(app: AppHandle) -> Result<Vec<RentalDto>, String> {
+    Ok(rentals::list_dtos(&app).await)
+}
+
+#[tauri::command]
+pub async fn get_rental_actual_cost(
+    app: AppHandle,
+    id: String,
+    force: Option<bool>,
+) -> Result<crate::aws::cost::ActualCost, String> {
+    rentals::actual_cost(&app, &id, force.unwrap_or(false)).await
+}
+
+#[tauri::command]
+pub async fn refresh_rental_access(app: AppHandle, id: String) -> Result<(), String> {
+    rentals::refresh_access(&app, &id).await
+}
+
+#[tauri::command]
 pub async fn get_provisioning_log(app: AppHandle, id: String) -> Result<Vec<String>, String> {
     Ok(rentals::get_provisioning_log(&app, &id).await)
 }
@@ -81,7 +96,9 @@ pub async fn stop_rental(
         }
 
         record.status = RentalStatus::Stopping;
-        record.to_dto()
+        let dto = record.to_dto();
+        rentals::persist(&app, &map);
+        dto
     };
 
     let app_for_task = app.clone();

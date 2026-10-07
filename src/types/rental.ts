@@ -30,11 +30,26 @@ export interface Rental {
   startedAt: string | null;
   stoppedAt: string | null;
   error?: string;
+  // Set when the rental was started from a GitHub repo — the key the
+  // sidebar uses to tie a rental back to its repo.
+  githubRepo?: GithubRepoSelectionRequest | null;
+  // Billing starts when the instance launches (startedAt only lands once the
+  // desktop is ready, minutes later). Null until then.
+  launchedAt?: string | null;
+  hourlyRateUsd?: number | null;
+  // "aws-pricing" when the price came from the AWS Price List API, "fallback"
+  // when it came from the app's built-in table.
+  rateSource?: string | null;
   connection: RentalConnection | null;
 }
 
+// Mirrors the Rust `ActualCost` enum — `get_rental_actual_cost`'s result.
+export type ActualCost =
+  | { state: "available"; amountUsd: number; throughDate: string }
+  | { state: "unavailable"; reason: string };
+
 // Mirrors the Rust `GithubRepoSelection` struct — sent to `start_rental` when
-// the chosen project came from GitHub rather than a local folder.
+// the chosen project came from GitHub.
 export interface GithubRepoSelectionRequest {
   githubAccountId: string;
   repoName: string;

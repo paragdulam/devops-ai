@@ -1,4 +1,4 @@
-import { RentalStatus, type CreateRentalRequest, type Rental } from "../types/rental";
+import { RentalStatus, type ActualCost, type CreateRentalRequest, type Rental } from "../types/rental";
 import type { RentalService } from "./rentalService";
 
 // How long each step of the fake provisioning progression takes. Tunable so
@@ -63,6 +63,7 @@ export class MockRentalService implements RentalService {
       ec2InstanceId: null,
       machineProfile: req.machineProfile,
       projectName: req.projectName,
+      githubRepo: req.githubRepo ?? null,
       createdAt: new Date().toISOString(),
       startedAt: null,
       stoppedAt: null,
@@ -77,6 +78,18 @@ export class MockRentalService implements RentalService {
     const rental = this.rentals.get(id);
     if (!rental) return Promise.reject(new Error(`Rental ${id} not found`));
     return Promise.resolve(rental);
+  }
+
+  listRentals(): Promise<Rental[]> {
+    return Promise.resolve([...this.rentals.values()]);
+  }
+
+  refreshAccess(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  getActualCost(): Promise<ActualCost> {
+    return Promise.resolve({ state: "unavailable", reason: "Mock rentals have no AWS billing data" });
   }
 
   stopRental(id: string): Promise<Rental> {

@@ -5,6 +5,7 @@ import type {
   GithubLinkStatus,
   GithubRepo,
 } from "../types/github";
+import type { ProjectDetection } from "../types/project";
 
 export async function linkGithubAccount(): Promise<GithubLinkStart> {
   return invoke<GithubLinkStart>("link_github_account");
@@ -24,4 +25,12 @@ export async function deleteGithubAccount(id: string): Promise<void> {
 
 export async function listGithubRepos(accountId: string): Promise<GithubRepo[]> {
   return invoke<GithubRepo[]>("list_github_repos", { accountId });
+}
+
+export async function detectGithubProject(
+  accountId: string,
+  fullName: string,
+  branch: string,
+): Promise<ProjectDetection> {
+  return invoke<ProjectDetection>("detect_github_project", { accountId, fullName, branch });
 }

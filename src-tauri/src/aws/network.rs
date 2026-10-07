@@ -143,3 +143,60 @@ pub async fn delete_security_group(ec2: &Client, group_id: &str) -> Result<(), S
         "Could not delete security group {group_id} after retries: {last_err}"
     ))
 }
+
+/// Re-scopes the group's SSH and noVNC rules to `caller_ip` — the group is
+/// created with the caller's IP at rental start, so a changed IP (new
+/// network, VPN) would otherwise lock the user out of a running rental.
+/// Existing rules for those two ports are revoked first; the rules stay
+/// scoped to a single `/32`. A no-op when already scoped to `caller_ip`.
+pub async fn rescope_security_group(
+    ec2: &Client,
+    group_id: &str,
+    caller_ip: &str,
+) -> Result<(), String> {
+    let wanted = format!("{caller_ip}/32");
+    let described = ec2
+        .describe_security_groups()
+        .group_ids(group_id)
+        .send()
+        .await
+        .map_err(|e| format!("Could not describe security group {group_id}: {e:?}"))?;
+
+    let mut stale = Vec::new();
+    let mut current_ports = Vec::new();
+    for group in described.security_groups() {
+        for perm in group.ip_permissions() {
+            let Some(port) = perm.from_port() else {
+                continue;
+            };
+            if port != NOVNC_PORT && port != SSH_PORT {
+                continue;
+            }
+            let cidrs: Vec<&str> = perm
+                .ip_ranges()
+                .iter()
+                .filter_map(|r| r.cidr_ip())
+                .collect();
+            if cidrs == [wanted.as_str()] {
+                current_ports.push(port);
+            } else {
+                stale.push(perm.clone());
+            }
+        }
+    }
+
+    if !stale.is_empty() {
+        ec2.revoke_security_group_ingress()
+            .group_id(group_id)
+            .set_ip_permissions(Some(stale))
+            .send()
+            .await
+            .map_err(|e| format!("Could not revoke stale ingress rules: {e:?}"))?;
+    }
+    for port in [NOVNC_PORT, SSH_PORT] {
+        if !current_ports.contains(&port) {
+            authorize_port(ec2, group_id, port, caller_ip).await?;
+        }
+    }
+    Ok(())
+}

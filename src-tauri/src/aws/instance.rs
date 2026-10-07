@@ -270,3 +270,49 @@ pub async fn wait_for_terminated(
         tokio::time::sleep(Duration::from_secs(3)).await;
     }
 }
+
+pub enum Liveness {
+    /// Running, with its current public IP.
+    Running(String),
+    /// Terminated, shutting down, stopped, or unknown to EC2 — nothing to
+    /// reattach to.
+    Gone,
+}
+
+/// One-shot DescribeInstances used when a restarted app reattaches to a
+/// persisted rental. A transport/API error is returned as `Err` so the caller
+/// can leave the rental untouched rather than wrongly releasing it.
+pub async fn check_liveness(ec2: &Client, instance_id: &str) -> Result<Liveness, String> {
+    let output = match ec2
+        .describe_instances()
+        .instance_ids(instance_id)
+        .send()
+        .await
+    {
+        Ok(o) => o,
+        Err(e) => {
+            // A terminated instance eventually ages out of DescribeInstances.
+            if e.to_string().contains("InvalidInstanceID") {
+                return Ok(Liveness::Gone);
+            }
+            return Err(format!("Could not describe instance {instance_id}: {e:?}"));
+        }
+    };
+    let instance = output
+        .reservations()
+        .first()
+        .and_then(|r| r.instances().first());
+    match instance {
+        Some(i)
+            if matches!(
+                i.state().and_then(|s| s.name()),
+                Some(InstanceStateName::Running)
+            ) =>
+        {
+            Ok(i.public_ip_address()
+                .map(|ip| Liveness::Running(ip.to_string()))
+                .unwrap_or(Liveness::Gone))
+        }
+        _ => Ok(Liveness::Gone),
+    }
+}

@@ -2,19 +2,30 @@ import { useState } from "react";
 import { useRentalState } from "../state/RentalContext";
 import { ConfirmDialog } from "./ConfirmDialog";
 
-export function StopRentingButton({ label = "STOP RENTING" }: { label?: string }) {
-  const { state, rentalService } = useRentalState();
+export function StopRentingButton({
+  rentalId,
+  label = "STOP RENTING",
+}: {
+  rentalId: string;
+  label?: string;
+}) {
+  const { dispatch, rentalService } = useRentalState();
   const [confirming, setConfirming] = useState(false);
   const [stopping, setStopping] = useState(false);
-
-  if (!state.rental) return null;
 
   async function handleConfirm() {
     setConfirming(false);
     setStopping(true);
-    await rentalService.stopRental(state.rental!.id);
-    // The RENTAL_UPDATED subscription (in RentalScreen) carries the
-    // STOPPING -> RELEASED transition and resets state back to Home.
+    try {
+      await rentalService.stopRental(rentalId);
+      // useRentalSync's polling carries the STOPPING -> RELEASED transition.
+    } catch (err) {
+      setStopping(false);
+      dispatch({
+        type: "RENTAL_ERROR",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   return (
