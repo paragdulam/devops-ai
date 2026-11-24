@@ -64,6 +64,8 @@ export const TOOL_LABELS: Record<string, string> = {
   kubectl: "kubectl",
   helm: "Helm",
   "aws-cli": "AWS CLI",
+  postgresql: "PostgreSQL",
+  "claude-code": "Claude Code",
 };
 
 export const TOOL_SOURCE_LABELS: Record<ToolSource, string> = {

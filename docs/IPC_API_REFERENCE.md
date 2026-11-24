@@ -58,7 +58,23 @@ Deletes the keyring entry (best-effort) and removes the account from `accounts.j
 | **Frontend call site** | `src/services/awsRentalService.ts: AwsRentalService.createRental(req)` |
 | **Used by** | `HomeScreen.tsx` "START RENTING" button |
 
+`machine_profile` is the EC2 instance type picked from `list_instance_types`. `provision` re-checks it with `DescribeInstanceTypes` and fails the rental if the type can't run the emulator. The instance launches with nested virtualization enabled.
+
 Rejects the call up front if any of `tools` fails `toolchain::validate` (tool not in the allowlist, or a version outside `[A-Za-z0-9._+-]{1,40}`) — README text is untrusted and ends up in the generated playbook. Otherwise creates a `RentalRecord` (status `REQUESTED`), inserts it into the in-memory map, and returns its DTO **immediately** — then spawns `rentals::provision(...)` as a detached background task that does the actual AWS work. See [`RENTAL_LIFECYCLE.md`](RENTAL_LIFECYCLE.md) for the full provisioning sequence.
+
+---
+
+### `list_instance_types`
+
+| | |
+|---|---|
+| **Rust fn** | `commands/rentals.rs` → `rentals::instance_types` → `aws::instance_types::list_emulator_capable` |
+| **Params** | `account_id: String` |
+| **Returns** | `Result<Vec<InstanceTypeOption>, String>` (`{ instanceType, vcpus, memoryGib, hourlyUsd, priceSource }`) |
+| **Frontend call site** | `src/services/awsRentalService.ts: AwsRentalService.listInstanceTypes(accountId)` |
+| **Used by** | `MachineProfileCard.tsx` in the repo setup form |
+
+Lists the account region's current-generation x86_64 instance types that support nested virtualization (so the Android emulator gets `/dev/kvm`). Bare-metal types and anything under 4 vCPU / 8 GiB are left out. Each type is priced through `aws::pricing::hourly_rate` (instance + 100 GiB gp3 + public IPv4), falling back to the built-in table; a type with no known price still appears, with `hourlyUsd: null`. The results are sorted cheapest first and cached per account for an hour. If no type qualifies, the call returns an error.
 
 ---
 

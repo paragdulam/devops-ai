@@ -1,4 +1,10 @@
-import { RentalStatus, type ActualCost, type CreateRentalRequest, type Rental } from "../types/rental";
+import {
+  RentalStatus,
+  type ActualCost,
+  type CreateRentalRequest,
+  type InstanceTypeOption,
+  type Rental,
+} from "../types/rental";
 import type { RentalService } from "./rentalService";
 
 // How long each step of the fake provisioning progression takes. Tunable so
@@ -15,6 +21,12 @@ const PROGRESSION: RentalStatus[] = [
 ];
 
 type Listener = (rental: Rental) => void;
+
+const MOCK_INSTANCE_TYPES: InstanceTypeOption[] = [
+  { instanceType: "c8i-flex.xlarge", vcpus: 4, memoryGib: 8, hourlyUsd: 0.18, priceSource: "fallback" },
+  { instanceType: "m8i-flex.xlarge", vcpus: 4, memoryGib: 16, hourlyUsd: 0.22, priceSource: "fallback" },
+  { instanceType: "m8i-flex.2xlarge", vcpus: 8, memoryGib: 32, hourlyUsd: 0.42, priceSource: "fallback" },
+];
 
 // In-memory storage, mirroring the PRD §19 note that the real backend also
 // starts out in-memory-only for the MVP — same storage strategy either way.
@@ -86,6 +98,10 @@ export class MockRentalService implements RentalService {
 
   refreshAccess(): Promise<void> {
     return Promise.resolve();
+  }
+
+  listInstanceTypes(): Promise<InstanceTypeOption[]> {
+    return Promise.resolve(MOCK_INSTANCE_TYPES);
   }
 
   getActualCost(): Promise<ActualCost> {

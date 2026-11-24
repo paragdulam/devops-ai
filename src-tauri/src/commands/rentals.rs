@@ -109,3 +109,11 @@ pub async fn stop_rental(
 
     Ok(dto_after_mark)
 }
+
+#[tauri::command]
+pub async fn list_instance_types(
+    app: AppHandle,
+    account_id: String,
+) -> Result<Vec<crate::aws::instance_types::InstanceTypeOption>, String> {
+    rentals::instance_types(&app, &account_id).await
+}

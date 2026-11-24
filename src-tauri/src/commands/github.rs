@@ -32,7 +32,7 @@ pub async fn delete_github_account(app: AppHandle, id: String) -> Result<(), Str
 
 #[tauri::command]
 pub async fn list_github_repos(account_id: String) -> Result<Vec<GithubRepo>, String> {
-    let token = github::resolve_github_token(&account_id)?;
+    let token = github::resolve_github_token(&account_id).await?;
     github::list_repos(&token).await
 }
 
@@ -51,7 +51,7 @@ pub async fn detect_github_project(
     full_name: String,
     branch: String,
 ) -> Result<ProjectDetection, String> {
-    let token = github::resolve_github_token(&account_id)?;
+    let token = github::resolve_github_token(&account_id).await?;
     let paths = project_kind::MARKER_FILES
         .iter()
         .chain(toolchain::TOOLCHAIN_FILES)

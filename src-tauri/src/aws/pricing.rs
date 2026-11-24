@@ -12,7 +12,20 @@ const PUBLIC_IPV4_USD_PER_HOUR: f64 = 0.005;
 
 /// Used when the Price List API can't be reached (no `pricing:GetProducts`
 /// permission, SCP block, offline). us-east-1 on-demand Linux, USD/hour.
-const FALLBACK_INSTANCE_PRICES: &[(&str, f64)] = &[("m5.2xlarge", 0.384)];
+/// The 8th-gen Intel entries are the emulator-capable types the picker most
+/// often shows first; they're approximate, so re-check them against the AWS
+/// price list when touching this table.
+const FALLBACK_INSTANCE_PRICES: &[(&str, f64)] = &[
+    ("m5.2xlarge", 0.384),
+    ("c8i-flex.xlarge", 0.1696),
+    ("c8i.xlarge", 0.1785),
+    ("m8i-flex.xlarge", 0.2011),
+    ("m8i.xlarge", 0.2117),
+    ("c8i-flex.2xlarge", 0.3392),
+    ("c8i.2xlarge", 0.357),
+    ("m8i-flex.2xlarge", 0.4022),
+    ("m8i.2xlarge", 0.4234),
+];
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RateSource {
@@ -107,9 +120,12 @@ async fn fetch_instance_price(
     let location =
         location_name(region).ok_or_else(|| format!("no price-list name for {region}"))?;
     // The Price List API is only served from a couple of regions.
+    // Extra retries with backoff: the instance picker prices dozens of types
+    // in a row and this API throttles ("Rate exceeded") quickly.
     let config = sdk_config
         .to_builder()
         .region(aws_config::Region::new("us-east-1"))
+        .retry_config(aws_config::retry::RetryConfig::standard().with_max_attempts(6))
         .build();
     let output = PricingClient::new(&config)
         .get_products()

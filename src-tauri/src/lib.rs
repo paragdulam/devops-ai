@@ -15,12 +15,12 @@ use commands::github::{
     list_github_accounts, list_github_repos,
 };
 use commands::rentals::{
-    get_provisioning_log, get_rental, get_rental_actual_cost, list_rentals, refresh_rental_access,
-    start_rental, stop_rental,
+    get_provisioning_log, get_rental, get_rental_actual_cost, list_instance_types, list_rentals,
+    refresh_rental_access, start_rental, stop_rental,
 };
 use commands::terminal::{close_terminal, open_ssh_terminal, resize_terminal, write_terminal};
 use github::GithubLinkState;
-use rentals::{ActualCostCache, RentalsState};
+use rentals::{ActualCostCache, InstanceTypesCache, RentalsState};
 use ssh::terminal::SshTerminalState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -31,6 +31,7 @@ pub fn run() {
         .manage(AccountsFileLock::default())
         .manage(RentalsState::default())
         .manage(ActualCostCache::default())
+        .manage(InstanceTypesCache::default())
         .manage(GithubLinkState::default())
         .manage(SshTerminalState::default())
         .setup(|app| {
@@ -49,6 +50,7 @@ pub fn run() {
             get_rental,
             list_rentals,
             get_rental_actual_cost,
+            list_instance_types,
             refresh_rental_access,
             get_provisioning_log,
             stop_rental,

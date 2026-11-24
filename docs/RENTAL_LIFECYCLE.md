@@ -56,13 +56,14 @@ sequenceDiagram
     Note over Cmd,Eng: start_rental spawns provision()\nas a detached background task
 
     Eng->>Eng: resolve_account_secret (keyring)
-    Eng->>Eng: instance_type_for_profile("standard")
+    Eng->>Eng: instance_type_for(machine_profile)
     Eng->>Eng: status → PROVISIONING
+    Eng->>AWS: is_emulator_capable (describe_instance_types)
     Eng->>AWS: build_sdk_config + resolve_ubuntu_ami (SSM)
     Eng->>AWS: resolve_default_vpc_and_subnet
     Eng->>AWS: lookup_caller_ip (checkip.amazonaws.com)
     Eng->>AWS: create_scoped_security_group (port 6080, caller /32)
-    Eng->>AWS: launch_instance (run_instances)
+    Eng->>AWS: launch_instance (run_instances, nested virtualization on)
     AWS-->>VM: instance created, cloud-init runs
     Eng->>AWS: wait_for_running (poll describe_instances)
     AWS-->>Eng: Running + public IP

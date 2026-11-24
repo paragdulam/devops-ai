@@ -361,19 +361,34 @@ pub async fn provision(
             }
         };
 
-    let profile = match aws::instance::profile_for(&machine_profile) {
-        Ok(p) => p,
-        Err(e) => {
-            set_failed(&app, &id, e).await;
-            return;
-        }
-    };
+    let instance_type = aws::instance::instance_type_for(&machine_profile).to_string();
 
     set_status(&app, &id, RentalStatus::Provisioning).await;
 
     let sdk_config =
         aws::credentials::build_sdk_config(&account.region, &account.access_key_id, &secret).await;
     let ec2 = Ec2Client::new(&sdk_config);
+
+    match aws::instance_types::is_emulator_capable(&ec2, &instance_type).await {
+        Ok(true) => {}
+        Ok(false) => {
+            set_failed(
+                &app,
+                &id,
+                format!(
+                    "Instance type {instance_type} can't run the Android emulator in {} \
+                     (needs x86_64 with nested virtualization, at least 4 vCPU / 8 GiB)",
+                    account.region
+                ),
+            )
+            .await;
+            return;
+        }
+        Err(e) => {
+            set_failed(&app, &id, e).await;
+            return;
+        }
+    }
 
     let (ami_id, root_device_name) = match aws::ami::resolve_ubuntu_ami(&ec2).await {
         Ok(v) => v,
@@ -443,7 +458,7 @@ pub async fn provision(
 
     let github_repo = get_record(&app, &id).await.and_then(|r| r.github_repo);
     let clone_spec = match github_repo {
-        Some(repo) => match github::resolve_github_token(&repo.github_account_id) {
+        Some(repo) => match github::resolve_github_token(&repo.github_account_id).await {
             Ok(token) => Some(ansible::CloneSpec {
                 url: format!(
                     "https://x-access-token:{token}@github.com/{}.git",
@@ -475,8 +490,9 @@ pub async fn provision(
         &ec2,
         &ami_id,
         &root_device_name,
-        profile.root_volume_gb,
-        profile.instance_type,
+        aws::instance::ROOT_VOLUME_GB,
+        &instance_type,
+        true,
         &subnet_id,
         &security_group_id,
         &id,
@@ -507,8 +523,8 @@ pub async fn provision(
     let rate = aws::pricing::hourly_rate(
         &sdk_config,
         &account.region,
-        profile.instance_type,
-        profile.root_volume_gb,
+        &instance_type,
+        aws::instance::ROOT_VOLUME_GB,
     )
     .await
     .map_err(|e| eprintln!("rental {id}: no cost estimate: {e}"))
@@ -592,7 +608,6 @@ pub async fn provision(
         vm_password: &vm_password,
         authorized_key_line: &public_key,
         vnc_password: &vnc_password,
-        profile_packages: profile.ansible_packages,
         ides: &ides,
         tools: &tools,
         clone: clone_spec.as_ref(),
@@ -924,4 +939,49 @@ pub async fn actual_cost(
             .insert(id.to_string(), (std::time::Instant::now(), cost.clone()));
     }
     Ok(cost)
+}
+
+/// How long the instance-type list is reused: it's dozens of Price List API
+/// calls to build, and neither the catalog nor prices change within a session.
+const INSTANCE_TYPES_TTL: Duration = Duration::from_secs(3600);
+
+/// Emulator-capable instance types per account (each account has its own
+/// region and credentials).
+#[derive(Default)]
+pub struct InstanceTypesCache(
+    pub Mutex<HashMap<String, (std::time::Instant, Vec<aws::instance_types::InstanceTypeOption>)>>,
+);
+
+/// Instance types the user can rent in this account's region, cheapest first.
+pub async fn instance_types(
+    app: &AppHandle,
+    account_id: &str,
+) -> Result<Vec<aws::instance_types::InstanceTypeOption>, String> {
+    let cache = app.state::<InstanceTypesCache>();
+    if let Some((at, options)) = cache.0.lock().await.get(account_id) {
+        if at.elapsed() < INSTANCE_TYPES_TTL {
+            return Ok(options.clone());
+        }
+    }
+
+    let (account, secret) = crate::commands::accounts::resolve_account_secret(app, account_id)?;
+    let sdk_config =
+        aws::credentials::build_sdk_config(&account.region, &account.access_key_id, &secret).await;
+    let ec2 = Ec2Client::new(&sdk_config);
+    let options =
+        aws::instance_types::list_emulator_capable(&ec2, &sdk_config, &account.region).await?;
+    if options.is_empty() {
+        return Err(format!(
+            "No instance types in {} can run the Android emulator (needs x86_64 with nested \
+             virtualization)",
+            account.region
+        ));
+    }
+
+    cache
+        .0
+        .lock()
+        .await
+        .insert(account_id.to_string(), (std::time::Instant::now(), options.clone()));
+    Ok(options)
 }

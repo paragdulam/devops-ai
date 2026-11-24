@@ -69,7 +69,9 @@ export interface AppState {
   projectKind: ProjectKind | null;
   selectedIdes: Ide[];
   selectedTools: ToolRequirement[];
-  selectedMachineProfileId: string;
+  // The EC2 instance type to launch; null until the picker has loaded the
+  // selected account's options.
+  selectedMachineProfileId: string | null;
   selectedAccountId: string | null;
   vmUsername: string;
   vmPassword: string;
@@ -86,6 +88,7 @@ export type AppAction =
   | { type: "IDES_CHANGED"; ides: Ide[] }
   | { type: "TOOLS_CHANGED"; tools: ToolRequirement[] }
   | { type: "ACCOUNT_SELECTED"; accountId: string }
+  | { type: "MACHINE_PROFILE_SELECTED"; machineProfileId: string | null }
   | { type: "VM_CREDENTIALS_CHANGED"; vmUsername: string; vmPassword: string }
   | { type: "RENTALS_LOADED"; rentals: Rental[] }
   | { type: "RENTAL_CREATED"; rental: Rental }
@@ -93,7 +96,7 @@ export type AppAction =
   | { type: "RENTAL_REMOVED"; rentalId: string }
   | { type: "RENTAL_ERROR"; error: string };
 
-export function createInitialState(defaultMachineProfileId: string): AppState {
+export function createInitialState(): AppState {
   return {
     sidebarTab: "repos",
     githubAccountId: null,
@@ -103,7 +106,7 @@ export function createInitialState(defaultMachineProfileId: string): AppState {
     projectKind: null,
     selectedIdes: EMPTY_DRAFT.selectedIdes,
     selectedTools: EMPTY_DRAFT.selectedTools,
-    selectedMachineProfileId: defaultMachineProfileId,
+    selectedMachineProfileId: null,
     selectedAccountId: null,
     vmUsername: "",
     vmPassword: "",
@@ -162,7 +165,17 @@ export function rentalReducer(state: AppState, action: AppAction): AppState {
     case "TOOLS_CHANGED":
       return { ...state, selectedTools: action.tools };
     case "ACCOUNT_SELECTED":
-      return { ...state, selectedAccountId: action.accountId, error: null };
+      // Instance types are listed per account (region), so a new account
+      // means picking again from its list.
+      return {
+        ...state,
+        selectedAccountId: action.accountId,
+        selectedMachineProfileId:
+          action.accountId === state.selectedAccountId ? state.selectedMachineProfileId : null,
+        error: null,
+      };
+    case "MACHINE_PROFILE_SELECTED":
+      return { ...state, selectedMachineProfileId: action.machineProfileId, error: null };
     case "VM_CREDENTIALS_CHANGED":
       return { ...state, vmUsername: action.vmUsername, vmPassword: action.vmPassword, error: null };
     case "RENTALS_LOADED": {

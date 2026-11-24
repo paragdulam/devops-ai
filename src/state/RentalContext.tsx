@@ -1,6 +1,5 @@
 import { createContext, useContext, useMemo, useReducer, type ReactNode } from "react";
 import { createRentalService, type RentalService } from "../services";
-import { MACHINE_PROFILES } from "../data/machineProfiles";
 import {
   createInitialState,
   rentalReducer,
@@ -17,10 +16,7 @@ interface RentalContextValue {
 const RentalContext = createContext<RentalContextValue | null>(null);
 
 export function RentalProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(
-    rentalReducer,
-    createInitialState(MACHINE_PROFILES[0].id),
-  );
+  const [state, dispatch] = useReducer(rentalReducer, undefined, createInitialState);
   const rentalService = useMemo(() => createRentalService(), []);
 
   const value = useMemo(

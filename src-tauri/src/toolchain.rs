@@ -76,7 +76,14 @@ const TOOLS: &[(&str, &[&str])] = &[
     ("kubectl", &["kubectl"]),
     ("helm", &["helm"]),
     ("aws-cli", &["awscli", "aws-cli"]),
+    ("postgresql", &["postgresql", "postgres", "psql"]),
+    ("claude-code", &["claude-code"]),
 ];
+
+/// Tools in `TOOLS` that the playbook installs with dedicated tasks instead
+/// of mise: PostgreSQL from the PGDG apt repo (mise would compile it and
+/// not run it as a service), Claude Code with Anthropic's native installer.
+pub const NON_MISE_TOOLS: &[&str] = &["postgresql", "claude-code"];
 
 /// Tools whose name is also a common English word, so a bare
 /// "go 2 levels up" in prose doesn't become a Go requirement: free-text

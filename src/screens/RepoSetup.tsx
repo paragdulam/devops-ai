@@ -18,10 +18,14 @@ export function RepoSetup({ onOpenAccounts }: { onOpenAccounts: () => void }) {
   const hasVmCredentials = state.vmUsername.trim() !== "" && state.vmPassword !== "";
   const hasValidTools = state.selectedTools.every((t) => isValidToolVersion(t.version));
   const canStart =
-    hasValidTools && state.selectedAccountId !== null && hasVmCredentials && !starting;
+    hasValidTools &&
+    state.selectedAccountId !== null &&
+    state.selectedMachineProfileId !== null &&
+    hasVmCredentials &&
+    !starting;
 
   async function handleStartRenting() {
-    if (!selection || !state.selectedAccountId) return;
+    if (!selection || !state.selectedAccountId || !state.selectedMachineProfileId) return;
 
     const request: CreateRentalRequest = {
       accountId: state.selectedAccountId,
@@ -59,8 +63,8 @@ export function RepoSetup({ onOpenAccounts }: { onOpenAccounts: () => void }) {
       <h1>{selection.repo.fullName}</h1>
       <IdePicker />
       <ToolchainPicker />
-      <MachineProfileCard />
       <AccountPicker onManageAccounts={onOpenAccounts} />
+      <MachineProfileCard />
       <VmCredentialsForm />
       {state.error && <p className="validation-error">{state.error}</p>}
       <button

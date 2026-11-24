@@ -33,7 +33,6 @@ pub struct ProvisionParams<'a> {
     /// (`ssh::generate_vnc_password`), just fed to Ansible instead of
     /// cloud-init now.
     pub vnc_password: &'a str,
-    pub profile_packages: &'a [&'static str],
     pub ides: &'a [Ide],
     /// Already checked by `toolchain::validate` in `start_rental`.
     pub tools: &'a [ToolRequirement],
@@ -128,7 +127,7 @@ const ANDROID_STUDIO_SHA256: &str =
 
 /// Playbook tasks installing the selected IDEs. Tagged `packages` so they
 /// report under the existing checklist phase rather than adding a new one.
-fn ide_tasks(ides: &[Ide]) -> String {
+fn ide_tasks(vm_username: &str, ides: &[Ide]) -> String {
     let mut tasks = String::new();
 
     // Installed from Microsoft's .deb rather than by adding the APT repo
@@ -200,9 +199,42 @@ fn ide_tasks(ides: &[Ide]) -> String {
           Categories=Development;IDE;
           Terminal=false
           StartupWMClass=jetbrains-studio
+
+    # The emulator needs /dev/kvm, which exists because the instance was
+    # launched with nested virtualization; the user still needs the KVM
+    # userspace bits and access to the device node.
+    - name: Install KVM for the Android emulator
+      tags: [packages]
+      ansible.builtin.apt:
+        name:
+          - qemu-kvm
+          - cpu-checker
+        state: present
+
+    - name: Let the VM user use KVM
+      tags: [packages]
+      ansible.builtin.user:
+        name: "{vm_username}"
+        groups: kvm
+        append: true
+
+    # Logged rather than fatal: without KVM the emulator is unusable, but
+    # the rest of the machine still is.
+    - name: Check KVM acceleration
+      tags: [packages]
+      ansible.builtin.command: kvm-ok
+      register: kvm_ok
+      changed_when: false
+      failed_when: false
+
+    - name: Report KVM acceleration
+      tags: [packages]
+      ansible.builtin.debug:
+        msg: "{{{{ kvm_ok.stdout | default('') }}}} {{{{ kvm_ok.stderr | default('') }}}}"
 "#,
             url = ANDROID_STUDIO_URL,
             sha = ANDROID_STUDIO_SHA256,
+            vm_username = vm_username,
         ));
     }
 
@@ -301,8 +333,19 @@ fn toolchain_tasks(
 "#
     );
 
-    if !tools.is_empty() {
-        let items = tools
+    let (system_tools, mise_tools): (Vec<&ToolRequirement>, Vec<&ToolRequirement>) = tools
+        .iter()
+        .partition(|t| crate::toolchain::NON_MISE_TOOLS.contains(&t.tool.as_str()));
+    for t in &system_tools {
+        match t.tool.as_str() {
+            "postgresql" => tasks.push_str(&postgresql_tasks(vm_username, &t.version)),
+            "claude-code" => tasks.push_str(&claude_code_tasks(vm_username, &t.version)),
+            _ => {}
+        }
+    }
+
+    if !mise_tools.is_empty() {
+        let items = mise_tools
             .iter()
             .map(|t| format!("        - \"{}@{}\"", t.tool, t.version))
             .collect::<Vec<_>>()
@@ -362,36 +405,99 @@ fn toolchain_tasks(
     tasks
 }
 
+/// PostgreSQL from the PGDG apt repo, running as a service, with a superuser
+/// role and database named after the VM user so `psql` works with no flags.
+/// `version` picks the major (`16`, `16.4` -> `postgresql-16`); anything else
+/// installs PGDG's current release. Best-effort like the mise installs.
+fn postgresql_tasks(vm_username: &str, version: &str) -> String {
+    let major = version.split('.').next().unwrap_or("");
+    let package = if !major.is_empty() && major.chars().all(|c| c.is_ascii_digit()) {
+        format!("postgresql-{major}")
+    } else {
+        "postgresql".to_string()
+    };
+    format!(
+        r#"
+    - name: Add the PostgreSQL APT signing key
+      tags: [toolchain]
+      ansible.builtin.get_url:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        dest: /etc/apt/keyrings/postgresql.asc
+        mode: "0644"
+      ignore_errors: true
+
+    - name: Add the PostgreSQL APT repository
+      tags: [toolchain]
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/pgdg.list
+        mode: "0644"
+        content: |
+          deb [signed-by=/etc/apt/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt {{{{ ansible_distribution_release }}}}-pgdg main
+      ignore_errors: true
+
+    - name: Install PostgreSQL
+      tags: [toolchain]
+      ansible.builtin.apt:
+        update_cache: true
+        name:
+          - {package}
+          - libpq-dev
+        state: present
+      register: postgresql_install
+      ignore_errors: true
+
+    - name: Start PostgreSQL
+      tags: [toolchain]
+      ansible.builtin.systemd:
+        name: postgresql
+        enabled: true
+        state: started
+      when: postgresql_install is succeeded
+      ignore_errors: true
+
+    - name: Create a PostgreSQL superuser and database for the VM user
+      tags: [toolchain]
+      become_user: postgres
+      ansible.builtin.shell: |
+        psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='{vm_username}'" | grep -q 1 || createuser --superuser "{vm_username}"
+        psql -tAc "SELECT 1 FROM pg_database WHERE datname='{vm_username}'" | grep -q 1 || createdb --owner "{vm_username}" "{vm_username}"
+      when: postgresql_install is succeeded
+      ignore_errors: true
+"#
+    )
+}
+
+/// Claude Code via Anthropic's native installer, into the VM user's
+/// `~/.local/bin` (already on PATH via the mise tasks). `version` is passed
+/// through (`latest`, `stable` or an exact version).
+fn claude_code_tasks(vm_username: &str, version: &str) -> String {
+    format!(
+        r#"
+    - name: Install Claude Code
+      tags: [toolchain]
+      become_user: "{vm_username}"
+      ansible.builtin.shell: curl -fsSL https://claude.ai/install.sh | bash -s {version}
+      args:
+        creates: "/home/{vm_username}/.local/bin/claude"
+      ignore_errors: true
+"#
+    )
+}
+
 /// Builds the playbook as a formatted string — same technique the old
 /// `aws::userdata::build_user_data` used for `#cloud-config`, new target
 /// format. Task order matches the "desktop setup before clone" requirement:
 /// base packages -> create user -> desktop/VNC/websockify (systemd-managed)
-/// -> profile packages -> repo clone.
+/// -> IDEs (+ KVM with Android Studio) -> repo clone -> toolchain.
 fn build_playbook(
     vm_username: &str,
     password_hash: &str,
     authorized_key_line: &str,
     vnc_password: &str,
-    profile_packages: &[&str],
     ides: &[Ide],
     tools: &[ToolRequirement],
     clone: Option<&CloneSpec>,
 ) -> String {
-    // `name: []` must stay on one line for an empty list — YAML doesn't allow
-    // a bare `[]` (no list-dash) on its own line as a mapping value's
-    // continuation, only actual `- item` block-sequence entries can follow
-    // the key on the next line.
-    let profile_packages_yaml = if profile_packages.is_empty() {
-        "        name: []".to_string()
-    } else {
-        let items = profile_packages
-            .iter()
-            .map(|p| format!("        - {p}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        format!("        name:\n{items}")
-    };
-
     let clone_task = clone
         .map(|c| {
             format!(
@@ -588,19 +694,12 @@ fn build_playbook(
       loop:
         - rdm-vnc.service
         - rdm-websockify.service
-
-    - name: Install profile-specific packages
-      tags: [packages]
-      ansible.builtin.apt:
-{profile_packages_yaml}
-        state: present
 {ide_tasks}{clone_task}{toolchain_tasks}"#,
         vm_username = vm_username,
         password_hash = password_hash,
         authorized_key_line = authorized_key_line,
         vnc_password = vnc_password,
-        profile_packages_yaml = profile_packages_yaml,
-        ide_tasks = ide_tasks(ides),
+        ide_tasks = ide_tasks(vm_username, ides),
         clone_task = clone_task,
         toolchain_tasks = toolchain_tasks(vm_username, tools, clone),
     )
@@ -654,7 +753,6 @@ pub async fn provision(params: ProvisionParams<'_>) -> Result<(), String> {
         &password_hash,
         params.authorized_key_line,
         params.vnc_password,
-        params.profile_packages,
         params.ides,
         params.tools,
         params.clone,
@@ -746,13 +844,10 @@ mod tests {
     use std::io::Write;
     use std::process::Command as StdCommand;
 
-    /// Regression test for a real bug: an empty `profile_packages` list (the
-    /// case for every rental today, since `"standard"` is the only machine
-    /// profile and it carries none) used to emit a bare `[]` on its own line
-    /// under `name:`, which isn't valid YAML for an empty sequence value —
-    /// `ansible-playbook` failed with exit code 4 (parser error) on every
-    /// single rental. Skips gracefully if `ansible-playbook` isn't on PATH,
-    /// so this never becomes a hard CI dependency.
+    /// Runs `ansible-playbook --syntax-check` on a generated playbook (a
+    /// malformed one once failed every rental with exit code 4). Skips
+    /// gracefully if `ansible-playbook` isn't on PATH, so this never becomes
+    /// a hard CI dependency.
     fn syntax_check(playbook: &str) {
         if StdCommand::new("ansible-playbook")
             .arg("--version")
@@ -803,7 +898,7 @@ mod tests {
     }
 
     #[test]
-    fn playbook_with_empty_profile_packages_is_valid_yaml() {
+    fn minimal_playbook_is_valid_yaml() {
         let hash = hash_password("s3cret!").unwrap();
         let playbook = build_playbook(
             "dev",
@@ -812,14 +907,64 @@ mod tests {
             "vncpass",
             &[],
             &[],
-            &[],
             None,
         );
+        assert!(!playbook.contains("qemu-kvm"));
         syntax_check(&playbook);
     }
 
     #[test]
-    fn playbook_with_profile_packages_and_clone_is_valid_yaml() {
+    fn kvm_is_set_up_only_with_android_studio() {
+        let hash = hash_password("s3cret!").unwrap();
+        let build = |ides: &[Ide]| {
+            build_playbook("dev", &hash, "ssh-ed25519 AAAA... key", "vncpass", ides, &[], None)
+        };
+        assert!(!build(&[Ide::Vscode]).contains("qemu-kvm"));
+        let android = build(&[Ide::AndroidStudio]);
+        assert!(android.contains("qemu-kvm"));
+        assert!(android.contains("groups: kvm"));
+        assert!(android.contains("name: \"dev\"\n        groups: kvm"));
+        assert!(android.contains("{{ kvm_ok.stdout"));
+    }
+
+    #[test]
+    fn postgresql_and_claude_code_get_their_own_tasks_not_mise() {
+        let hash = hash_password("s3cret!").unwrap();
+        let tool = |tool: &str, version: &str| ToolRequirement {
+            tool: tool.to_string(),
+            version: version.to_string(),
+            source: crate::toolchain::ToolSource::User,
+        };
+        let playbook = build_playbook(
+            "dev",
+            &hash,
+            "ssh-ed25519 AAAA... key",
+            "vncpass",
+            &[],
+            &[
+                tool("node", "20"),
+                tool("postgresql", "16.4"),
+                tool("claude-code", "latest"),
+            ],
+            None,
+        );
+        assert!(playbook.contains("- \"node@20\""));
+        assert!(!playbook.contains("postgresql@"));
+        assert!(!playbook.contains("claude-code@"));
+        assert!(playbook.contains("- postgresql-16\n"));
+        assert!(playbook.contains("createuser --superuser \"dev\""));
+        assert!(playbook.contains("install.sh | bash -s latest"));
+        assert!(playbook.contains("{{ ansible_distribution_release }}-pgdg"));
+        syntax_check(&playbook);
+    }
+
+    #[test]
+    fn postgresql_without_numeric_version_installs_current_release() {
+        assert!(postgresql_tasks("dev", "latest").contains("- postgresql\n"));
+    }
+
+    #[test]
+    fn full_playbook_with_ides_tools_and_clone_is_valid_yaml() {
         let hash = hash_password("s3cret!").unwrap();
         let clone = CloneSpec {
             url: "https://x-access-token:tok@github.com/example/repo.git".to_string(),
@@ -831,7 +976,6 @@ mod tests {
             &hash,
             "ssh-ed25519 AAAA... key",
             "vncpass",
-            &["openjdk-17-jdk", "gradle"],
             &[Ide::Vscode, Ide::AndroidStudio],
             &[
                 ToolRequirement {

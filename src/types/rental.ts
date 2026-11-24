@@ -62,6 +62,7 @@ import type { Ide, ToolRequirement } from "./project";
 
 export interface CreateRentalRequest {
   accountId: string;
+  // The EC2 instance type, e.g. "m8i-flex.xlarge".
   machineProfile: string;
   projectName: string;
   vmUsername: string;
@@ -72,3 +73,14 @@ export interface CreateRentalRequest {
 }
 
 export type CreateRentalResponse = Rental;
+
+// Mirrors the Rust `InstanceTypeOption` — one row of `list_instance_types`,
+// an EC2 instance type that can run the Android emulator.
+export interface InstanceTypeOption {
+  instanceType: string;
+  vcpus: number;
+  memoryGib: number;
+  // All-in hourly rate (instance + disk + public IP); null when unknown.
+  hourlyUsd: number | null;
+  priceSource: string | null;
+}

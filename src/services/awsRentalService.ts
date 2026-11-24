@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ActualCost, CreateRentalRequest, Rental } from "../types/rental";
+import type {
+  ActualCost,
+  CreateRentalRequest,
+  InstanceTypeOption,
+  Rental,
+} from "../types/rental";
 import type { RentalService } from "./rentalService";
 
 const POLL_INTERVAL_MS = 1500;
@@ -32,6 +37,10 @@ export class AwsRentalService implements RentalService {
 
   async refreshAccess(id: string): Promise<void> {
     await invoke("refresh_rental_access", { id });
+  }
+
+  listInstanceTypes(accountId: string): Promise<InstanceTypeOption[]> {
+    return invoke<InstanceTypeOption[]>("list_instance_types", { accountId });
   }
 
   getActualCost(id: string, force = false): Promise<ActualCost> {

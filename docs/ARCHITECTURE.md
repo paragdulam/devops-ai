@@ -89,7 +89,7 @@ graph LR
     subgraph AWSCloud["AWS Cloud (customer's account/region)"]
         subgraph VPC["Default VPC"]
             SG["Security Group rdm-<rental-id><br/>TCP 6080 AND TCP 22, each open<br/>ONLY to caller's /32 IP"]
-            subgraph EC2["EC2 instance (m5.2xlarge)"]
+            subgraph EC2["EC2 instance (user-picked, nested virtualization)"]
                 direction TB
                 OS["Ubuntu 22.04<br/>(imported keypair authorizes<br/>the 'ubuntu' user's SSH key)"]
                 Desktop["XFCE + Xvnc :1 (localhost-only)<br/>provisioned by Ansible over SSH"]

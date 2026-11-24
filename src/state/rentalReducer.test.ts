@@ -37,7 +37,7 @@ const repo = (name: string): GithubRepo => ({
   defaultBranch: "main",
 });
 
-const initial = () => createInitialState("standard");
+const initial = () => createInitialState();
 
 function withRental(state: AppState, r: Rental): AppState {
   return rentalReducer(state, { type: "RENTAL_CREATED", rental: r });
@@ -239,5 +239,35 @@ describe("toolchain", () => {
 
     state = rentalReducer(state, { type: "PROJECT_DETECTED", kind: "android", tools: [java17] });
     expect(state.selectedTools).toEqual([java17]);
+  });
+});
+
+describe("machine selection", () => {
+  it("starts with no instance type selected", () => {
+    expect(initial().selectedMachineProfileId).toBeNull();
+  });
+
+  it("records the picked instance type", () => {
+    const state = rentalReducer(initial(), {
+      type: "MACHINE_PROFILE_SELECTED",
+      machineProfileId: "m8i-flex.xlarge",
+    });
+    expect(state.selectedMachineProfileId).toBe("m8i-flex.xlarge");
+  });
+
+  it("clears the instance type when the account changes, keeps it otherwise", () => {
+    let state = rentalReducer(initial(), { type: "ACCOUNT_SELECTED", accountId: "acct-1" });
+    state = rentalReducer(state, {
+      type: "MACHINE_PROFILE_SELECTED",
+      machineProfileId: "m8i-flex.xlarge",
+    });
+    expect(
+      rentalReducer(state, { type: "ACCOUNT_SELECTED", accountId: "acct-1" })
+        .selectedMachineProfileId,
+    ).toBe("m8i-flex.xlarge");
+    expect(
+      rentalReducer(state, { type: "ACCOUNT_SELECTED", accountId: "acct-2" })
+        .selectedMachineProfileId,
+    ).toBeNull();
   });
 });

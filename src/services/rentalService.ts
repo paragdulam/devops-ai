@@ -1,4 +1,9 @@
-import type { ActualCost, CreateRentalRequest, Rental } from "../types/rental";
+import type {
+  ActualCost,
+  CreateRentalRequest,
+  InstanceTypeOption,
+  Rental,
+} from "../types/rental";
 
 // The seam Milestone 2 fills in with a real HTTP/WebSocket client.
 // Maps directly to the PRD §18 API surface:
@@ -19,5 +24,8 @@ export interface RentalService {
   // Billed cost from AWS Cost Explorer (lags ~24h; each call costs $0.01).
   getActualCost(id: string, force?: boolean): Promise<ActualCost>;
   stopRental(id: string): Promise<Rental>;
+  // Instance types the account's region offers that can run the Android
+  // emulator, cheapest first.
+  listInstanceTypes(accountId: string): Promise<InstanceTypeOption[]>;
   subscribeToRental(id: string, onUpdate: (rental: Rental) => void): () => void;
 }

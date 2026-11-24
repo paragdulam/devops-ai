@@ -4787,6 +4787,7 @@ dependencies = [
  "aws-sdk-sts",
  "base64 0.23.1",
  "chrono",
+ "futures",
  "keyring",
  "rand",
  "regex",

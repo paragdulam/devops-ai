@@ -1,46 +1,40 @@
 use aws_sdk_ec2::types::{
-    BlockDeviceMapping, EbsBlockDevice, InstanceNetworkInterfaceSpecification, InstanceStateName,
-    InstanceType, ResourceType, Tag, TagSpecification, VolumeType,
+    BlockDeviceMapping, CpuOptionsRequest, EbsBlockDevice, InstanceNetworkInterfaceSpecification,
+    InstanceStateName, InstanceType, NestedVirtualizationSpecification, ResourceType, Tag,
+    TagSpecification, VolumeType,
 };
 use aws_sdk_ec2::Client;
 use std::net::ToSocketAddrs;
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 
-pub struct MachineProfile {
-    pub id: &'static str,
-    pub instance_type: &'static str,
-    /// Extra `apt` packages installed by the Ansible playbook for this
-    /// profile, on top of the base desktop/VNC package set. Empty for
-    /// `"standard"` today — a hook for later profiles (e.g. Android dev
-    /// tooling), not a catalog UI.
-    pub ansible_packages: &'static [&'static str],
-    /// Root volume size in GiB. Canonical's Ubuntu AMIs default to 8 GiB,
-    /// which isn't enough once a cloned repo, its build artifacts, and any
-    /// package manager caches land on the same disk.
-    pub root_volume_gb: i32,
+/// Root volume size in GiB. Canonical's Ubuntu AMIs default to 8 GiB, which
+/// isn't enough once a cloned repo, its build artifacts, and any package
+/// manager caches land on the same disk.
+pub const ROOT_VOLUME_GB: i32 = 100;
+
+/// Rentals created before the instance-type picker stored the profile id
+/// `"standard"` instead of an EC2 instance type.
+const LEGACY_STANDARD_PROFILE: &str = "standard";
+const LEGACY_STANDARD_INSTANCE_TYPE: &str = "m5.2xlarge";
+
+/// The EC2 instance type a rental's stored `machine_profile` refers to.
+pub fn instance_type_for(machine_profile: &str) -> &str {
+    if machine_profile == LEGACY_STANDARD_PROFILE {
+        LEGACY_STANDARD_INSTANCE_TYPE
+    } else {
+        machine_profile
+    }
 }
 
-const PROFILES: &[MachineProfile] = &[MachineProfile {
-    id: "standard",
-    instance_type: "m5.2xlarge",
-    ansible_packages: &[],
-    root_volume_gb: 100,
-}];
-
-pub fn profile_for(id: &str) -> Result<&'static MachineProfile, String> {
-    PROFILES
-        .iter()
-        .find(|p| p.id == id)
-        .ok_or_else(|| format!("Unknown machine profile: {id}"))
-}
-
+#[allow(clippy::too_many_arguments)]
 pub async fn launch_instance(
     ec2: &Client,
     ami_id: &str,
     root_device_name: &str,
     root_volume_gb: i32,
     instance_type: &str,
+    nested_virtualization: bool,
     subnet_id: &str,
     security_group_id: &str,
     rental_id: &str,
@@ -96,7 +90,7 @@ pub async fn launch_instance(
         )
         .build();
 
-    let output = ec2
+    let mut request = ec2
         .run_instances()
         .image_id(ami_id)
         .instance_type(InstanceType::from(instance_type))
@@ -106,7 +100,18 @@ pub async fn launch_instance(
         .network_interfaces(nic)
         .block_device_mappings(root_volume)
         .tag_specifications(instance_tags)
-        .tag_specifications(volume_tags)
+        .tag_specifications(volume_tags);
+    // Off by default even on types that support it; without it the guest
+    // has no `/dev/kvm` and the Android emulator can't start.
+    if nested_virtualization {
+        request = request.cpu_options(
+            CpuOptionsRequest::builder()
+                .nested_virtualization(NestedVirtualizationSpecification::Enabled)
+                .build(),
+        );
+    }
+
+    let output = request
         .send()
         .await
         .map_err(|e| format!("Could not launch EC2 instance: {e:?}"))?;
@@ -314,5 +319,16 @@ pub async fn check_liveness(ec2: &Client, instance_id: &str) -> Result<Liveness,
                 .unwrap_or(Liveness::Gone))
         }
         _ => Ok(Liveness::Gone),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_standard_profile_maps_to_m5() {
+        assert_eq!(instance_type_for("standard"), "m5.2xlarge");
+        assert_eq!(instance_type_for("m8i-flex.xlarge"), "m8i-flex.xlarge");
     }
 }
